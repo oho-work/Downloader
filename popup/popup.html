@@ -17,7 +17,7 @@
     </div>
   </header>
 
-  <nav class="tabs">
+  <nav class="tabs" id="mainNav">
     <button class="tab active" data-view="sniff">嗅探</button>
     <button class="tab" data-view="cache">缓存</button>
     <button class="tab" data-view="cache" data-clear="1" style="margin-left:auto" title="清空所有缓存" id="clearBtn">清空</button>
@@ -27,7 +27,25 @@
     <div class="loading-msg" id="loading">加载中…</div>
   </main>
 
-  <footer>
+  <section id="settingsView" hidden>
+    <div class="settings-head">
+      <button id="backBtn" class="icon-btn" title="返回">‹</button>
+      <b>设置</b>
+    </div>
+    <div class="settings-group">
+      <div class="settings-row"><span>自动嗅探网页 m3u8</span><label class="switch"><input type="checkbox" id="sniffEnabled"><span class="sl"></span></label></div>
+      <div class="settings-row"><span>最大并发请求数</span><input type="number" id="maxConcurrent" min="1" max="64"></div>
+      <div class="settings-row"><span>单分片请求超时（秒）</span><input type="number" id="timeoutMs" min="1" max="120"></div>
+      <div class="settings-row"><span>失败重试次数</span><input type="number" id="maxRetry" min="0" max="10"></div>
+    </div>
+    <p class="settings-note">导出格式固定为 MP4，文件名使用当前网页标题。</p>
+    <div class="settings-actions">
+      <button id="resetSettings" class="ghost">恢复默认</button>
+      <button id="saveSettings" class="primary">保存设置</button>
+    </div>
+  </section>
+
+  <footer id="mainFooter">
     <button id="settingsBtn" class="ghost">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke="currentColor"><path d="M4 21v-7m0-4V3m8 18v-9m0-4V3m8 18v-5m0-4V3M1 14h6m2-6h6m2 8h6"/></svg>
       设置

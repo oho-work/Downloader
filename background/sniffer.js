@@ -7,15 +7,28 @@ import { logger } from '../utils/logger.js';
 
 // tabId -> Map<url, stream>（内存缓存，快速读）
 const tabStreams = new Map();
+const tabPages = new Map();
+let sniffEnabled = true;
 
 const STORE_PREFIX = 'streams:';
+function pageKey(url) {
+  if (!url) return '';
+  try { const u = new URL(url); u.hash = ''; return u.href; } catch { return String(url); }
+}
 
 // ── 嗅探主通道：捕获 m3u8 请求 URL ──
 function onRequest(details) {
+  if (!sniffEnabled) return;
   if (!/\.m3u8(?:$|[?#])/i.test(details.url)) return;
   const tabId = details.tabId;
-  if (tabId < 0) return; // 非页面请求（如 SW 自身）忽略
-  enqueue(tabId, details.url);
+  if (tabId == null || tabId < 0) return; // 非页面请求（如 SW 自身）忽略
+  const pageUrl = pageKey(details.documentUrl || details.initiator || '');
+  if (pageUrl) {
+    const previous = tabPages.get(tabId);
+    if (previous && previous !== pageUrl) clearTab(tabId);
+    tabPages.set(tabId, pageUrl);
+  }
+  enqueue(tabId, details.url, pageUrl);
 }
 
 // ── 捕获请求头上下文（Cookie/UA/Referer）──
@@ -25,15 +38,15 @@ function onSendHeaders(details) {
   captureHeaders(details.tabId, details.requestId, details.requestHeaders);
 }
 
-function enqueue(tabId, url) {
+function enqueue(tabId, url, pageUrl = tabPages.get(tabId) || '') {
   const list = tabStreams.get(tabId) || new Map();
   if (list.has(url)) return; // 去重
   const headers = getSession(tabId);
-  const entry = { url, headers: headers || null, firstSeen: Date.now(), checked: false };
+  const entry = { url, pageUrl, headers: headers || null, firstSeen: Date.now(), checked: false };
   list.set(url, entry);
   tabStreams.set(tabId, list);
   // 异步校验（不阻塞监听）
-  verify(tabId, entry).then(() => persist(tabId));
+  verify(tabId, entry).then(() => persist(tabId, pageUrl));
 }
 
 // ── 轻量校验：GET 清单文本，解析判定有效性与流类型 ──
@@ -83,7 +96,8 @@ function notifyContent(tabId, entry) {
 }
 
 // ── 归档到 storage.local，供 popup 读取 ──
-async function persist(tabId) {
+async function persist(tabId, pageUrl = tabPages.get(tabId) || '') {
+  if (pageUrl && tabPages.get(tabId) !== pageUrl) return;
   const list = tabStreams.get(tabId);
   if (!list) return;
   const arr = [...list.values()]
@@ -98,12 +112,15 @@ async function persist(tabId) {
   // Persist only public metadata. Request headers can contain cookies and must
   // remain in the in-memory session map.
   const publicArr = arr.map(({ headers, ...rest }) => rest);
-  await chrome.storage.local.set({ [key + ':pub']: publicArr });
+  await chrome.storage.local.set({ [key + ':pub']: publicArr, [key + ':page']: pageUrl });
 }
 
 // ── 对外查询 ──
-export async function listStreams(tabId) {
-  const { [STORE_PREFIX + tabId + ':pub']: pub } = await chrome.storage.local.get([STORE_PREFIX + tabId + ':pub']);
+export async function listStreams(tabId, currentPageUrl = '') {
+  const keys = [STORE_PREFIX + tabId + ':pub', STORE_PREFIX + tabId + ':page'];
+  const { [keys[0]]: pub, [keys[1]]: storedPage } = await chrome.storage.local.get(keys);
+  const currentPage = pageKey(currentPageUrl);
+  if (currentPage && storedPage !== currentPage) return [];
   return pub || [];
 }
 
@@ -119,11 +136,23 @@ export function registerSniffer() {
 
 export function clearTab(tabId) {
   tabStreams.delete(tabId);
-  chrome.storage.local.remove([STORE_PREFIX + tabId, STORE_PREFIX + tabId + ':pub']).catch(() => {});
+  tabPages.delete(tabId);
+  chrome.storage.local.remove([STORE_PREFIX + tabId, STORE_PREFIX + tabId + ':pub', STORE_PREFIX + tabId + ':page']).catch(() => {});
+}
+
+export function setSniffEnabled(enabled) {
+  sniffEnabled = enabled !== false;
+  if (!sniffEnabled) for (const tabId of tabStreams.keys()) clearTab(tabId);
 }
 
 // 内容脚本兜底嗅探上报入口
-export function ingestContentStream(tabId, url) {
-  if (!url || !/\.m3u8(?:$|[?#])/i.test(url) || tabId == null) return;
-  enqueue(tabId, url);
+export function ingestContentStream(tabId, url, pageUrl = '') {
+  if (!sniffEnabled || !url || !/\.m3u8(?:$|[?#])/i.test(url) || tabId == null) return;
+  pageUrl = pageKey(pageUrl);
+  if (pageUrl) {
+    const previous = tabPages.get(tabId);
+    if (previous && previous !== pageUrl) clearTab(tabId);
+    tabPages.set(tabId, pageUrl);
+  }
+  enqueue(tabId, url, pageUrl);
 }

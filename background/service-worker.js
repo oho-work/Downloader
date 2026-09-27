@@ -1,6 +1,6 @@
 // background/service-worker.js
 // 后台入口：嗅探 + 任务注册 + 分片调度 + 生命周期 + 心跳
-import { registerSniffer, listStreams, clearTab, ingestContentStream } from './sniffer.js';
+import { registerSniffer, listStreams, clearTab, ingestContentStream, setSniffEnabled } from './sniffer.js';
 import { getSession, clearSession, purgeExpired, bindSession } from './session.js';
 import { parsePlaylist } from './m3u8-parser.js';
 import { scheduler, dedupe } from './scheduler.js';
@@ -10,9 +10,8 @@ import { logger } from '../utils/logger.js';
 
 const DEFAULTS = {
   sniffEnabled: true, maxConcurrent: 16, timeoutMs: 30000, maxRetry: 5,
-  seekBefore: 3, seekAfter: 7, playAhead: 10,
-  folderFromTitle: true, format: 'mp4', cleanAfter: true,
 };
+const SETTINGS_KEYS = ['sniffEnabled', 'maxConcurrent', 'timeoutMs', 'maxRetry'];
 
 // 播放任务注册表（videoId -> task），headers 只存 SW 内存
 const taskCtx = new Map();
@@ -28,9 +27,24 @@ function hasOtherPlayer(videoId, exceptTabId = null) {
 
 async function loadSettings() {
   const stored = await getSettings();
-  const s = { ...DEFAULTS, ...stored };
+  const s = { ...DEFAULTS };
+  for (const key of SETTINGS_KEYS) if (Object.prototype.hasOwnProperty.call(stored || {}, key)) s[key] = stored[key];
   scheduler.setConcurrency(s.maxConcurrent);
+  setSniffEnabled(s.sniffEnabled);
   return s;
+}
+
+function normalizeSettings(input = {}) {
+  const n = (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback;
+  const maxConcurrent = Math.min(64, Math.max(1, n(input.maxConcurrent, DEFAULTS.maxConcurrent)));
+  const timeoutMs = Math.min(120000, Math.max(1000, n(input.timeoutMs, DEFAULTS.timeoutMs)));
+  const maxRetry = Math.min(10, Math.max(0, n(input.maxRetry, DEFAULTS.maxRetry)));
+  return {
+    sniffEnabled: input.sniffEnabled !== false,
+    maxConcurrent,
+    timeoutMs,
+    maxRetry,
+  };
 }
 
 // ── 消息分派 ──
@@ -63,11 +77,11 @@ async function handle(msg, sender) {
 
     case 'LIST_STREAMS': {
       const tabId = msg.tabId != null ? msg.tabId : sender.tab && sender.tab.id;
-      return { ok: true, streams: await listStreams(tabId) };
+      return { ok: true, streams: await listStreams(tabId, msg.pageUrl || '') };
     }
 
     case 'SEND_STREAMS': {
-      ingestContentStream(sender.tab && sender.tab.id, msg.url);
+      ingestContentStream(sender.tab && sender.tab.id, msg.url, sender.tab && sender.tab.url);
       return { ok: true };
     }
 
@@ -254,7 +268,13 @@ async function handle(msg, sender) {
     }
 
     case 'GET_SETTINGS': return { ok: true, settings: await loadSettings() };
-    case 'SAVE_SETTINGS': { await saveSettings(msg.settings); scheduler.setConcurrency(msg.settings.maxConcurrent); return { ok: true }; }
+    case 'SAVE_SETTINGS': {
+      const settings = normalizeSettings(msg.settings);
+      await saveSettings(settings);
+      scheduler.setConcurrency(settings.maxConcurrent);
+      setSniffEnabled(settings.sniffEnabled);
+      return { ok: true, settings };
+    }
 
     default: return { ok: false, error: 'unknown type: ' + (msg && msg.type) };
   }
@@ -326,16 +346,34 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     // 只有最后一个播放器标签页关闭后才清理视频缓存。否则关闭其中一个
     // 标签会把另一个标签正在播放/导出的数据一起删掉。
     if (hasOtherPlayer(videoId)) return;
-    scheduler.cancelAll(videoId);
-    loadSettings().then(settings => {
-      const cleanup = settings.cleanAfter !== false
-        ? delAllSegments(videoId).then(() => delMeta(videoId))
-        : Promise.resolve();
-      return cleanup.then(() => scheduler.unregister(videoId));
-    }).catch(() => {}).finally(() => {
-      taskCtx.delete(videoId);
-    });
+    cleanupVideo(videoId);
   }
+});
+
+async function cleanupVideo(videoId) {
+  scheduler.cancelAll(videoId);
+  try { await delAllSegments(videoId); } catch {}
+  try { await delMeta(videoId); } catch {}
+  scheduler.unregister(videoId);
+  taskCtx.delete(videoId);
+}
+
+// 页面导航会触发 onRemoved 之前的 pagehide，不能依赖标签页关闭事件才清理。
+// 同时清掉该标签页的嗅探候选和会话请求头，避免新网址继承旧页面状态。
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (!changeInfo || !changeInfo.url) return;
+  clearTab(tabId);
+  clearSession(tabId);
+  const videoId = tabVideo.get(tabId);
+  if (!videoId) return;
+  let samePlayer = false;
+  try {
+    const u = new URL(changeInfo.url);
+    samePlayer = u.href.startsWith(chrome.runtime.getURL('player/player.html')) && u.searchParams.get('v') === videoId;
+  } catch {}
+  if (samePlayer) return;
+  tabVideo.delete(tabId);
+  if (!hasOtherPlayer(videoId)) cleanupVideo(videoId).catch(() => {});
 });
 
 registerSniffer();

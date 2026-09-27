@@ -3,6 +3,10 @@
 (() => {
   const listEl = document.getElementById('list');
   const subtitle = document.getElementById('subtitle');
+  const mainNav = document.getElementById('mainNav');
+  const mainFooter = document.getElementById('mainFooter');
+  const settingsView = document.getElementById('settingsView');
+  const DEFAULTS = { sniffEnabled: true, maxConcurrent: 16, timeoutMs: 30000, maxRetry: 5 };
   let activeView = 'sniff';
 
   async function getActiveTab() {
@@ -28,7 +32,7 @@
     subtitle.textContent = '当前页嗅探结果';
     const tab = await getActiveTab();
     if (!tab) { showEmpty('未获取到当前标签页'); return; }
-    const resp = await chrome.runtime.sendMessage({ type: 'LIST_STREAMS', tabId: tab.id });
+    const resp = await chrome.runtime.sendMessage({ type: 'LIST_STREAMS', tabId: tab.id, pageUrl: tab.url || '' });
     const streams = (resp && resp.ok && resp.streams) || [];
     if (!streams.length) { showEmpty('未检测到视频流', '播放网页中的 HLS 视频后，列表会实时出现候选流'); return; }
 
@@ -108,7 +112,62 @@
     });
   });
 
-  document.getElementById('settingsBtn').addEventListener('click', () => chrome.runtime.openOptionsPage());
+  function setSettingsVisible(visible) {
+    mainNav.hidden = visible;
+    listEl.hidden = visible;
+    mainFooter.hidden = visible;
+    settingsView.hidden = !visible;
+    subtitle.textContent = visible ? '扩展设置' : '当前页嗅探结果';
+  }
+
+  async function loadSettingsView() {
+    const r = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
+    const s = { ...DEFAULTS, ...((r && r.ok && r.settings) || {}) };
+    document.getElementById('sniffEnabled').checked = s.sniffEnabled !== false;
+    document.getElementById('maxConcurrent').value = s.maxConcurrent;
+    document.getElementById('timeoutMs').value = Math.round(s.timeoutMs / 1000);
+    document.getElementById('maxRetry').value = s.maxRetry;
+  }
+
+  function collectSettings() {
+    const maxConcurrent = Math.min(64, Math.max(1, Number(document.getElementById('maxConcurrent').value) || DEFAULTS.maxConcurrent));
+    const timeoutMs = Math.min(120, Math.max(1, Number(document.getElementById('timeoutMs').value) || DEFAULTS.timeoutMs / 1000)) * 1000;
+    const maxRetry = Math.min(10, Math.max(0, Number(document.getElementById('maxRetry').value) || 0));
+    return {
+      sniffEnabled: document.getElementById('sniffEnabled').checked,
+      maxConcurrent, timeoutMs, maxRetry,
+    };
+  }
+
+  document.getElementById('settingsBtn').addEventListener('click', async () => {
+    setSettingsVisible(true);
+    await loadSettingsView();
+  });
+  document.getElementById('backBtn').addEventListener('click', () => {
+    setSettingsVisible(false);
+    render();
+  });
+  document.getElementById('saveSettings').addEventListener('click', async () => {
+    const settings = collectSettings();
+    const r = await chrome.runtime.sendMessage({ type: 'SAVE_SETTINGS', settings });
+    if (r && r.ok) {
+      const btn = document.getElementById('saveSettings');
+      const old = btn.textContent;
+      btn.textContent = '已保存';
+      setTimeout(() => { btn.textContent = old; }, 1200);
+    }
+  });
+  document.getElementById('resetSettings').addEventListener('click', async () => {
+    document.getElementById('sniffEnabled').checked = DEFAULTS.sniffEnabled;
+    document.getElementById('maxConcurrent').value = DEFAULTS.maxConcurrent;
+    document.getElementById('timeoutMs').value = DEFAULTS.timeoutMs / 1000;
+    document.getElementById('maxRetry').value = DEFAULTS.maxRetry;
+    await chrome.runtime.sendMessage({ type: 'SAVE_SETTINGS', settings: DEFAULTS });
+    const btn = document.getElementById('resetSettings');
+    const old = btn.textContent;
+    btn.textContent = '已恢复';
+    setTimeout(() => { btn.textContent = old; }, 1200);
+  });
 
   render();
 })();
