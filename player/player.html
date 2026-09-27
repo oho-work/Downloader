@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HLS Cache Player · 播放</title>
+<link rel="stylesheet" href="player.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="6" fill="#22D3EE"/><path d="M9 7.5v9l8-4.5z" fill="#0B0E14"/></svg>
+      HLS Cache Player
+    </div>
+    <div class="title">
+      <h1 id="title">加载中…</h1>
+      <span id="domain" class="domain"></span>
+    </div>
+    <div class="badge" id="status">连接中</div>
+  </header>
+
+  <main class="stage">
+    <div class="left">
+      <div class="frame">
+        <video id="video" controls playsinline autoplay></video>
+        <div class="videoCacheBar" id="videoCacheBar"></div>
+        <div class="loading" id="loading">
+          <div class="spinner"></div>
+          <p>正在连接视频流…</p>
+        </div>
+        <div class="error" id="error" hidden>
+          <p id="errorMsg"></p>
+          <button id="retry">重试</button>
+        </div>
+      </div>
+    </div>
+
+    <aside class="side" id="side">
+      <section class="card info">
+        <div class="kv"><span>来源</span><b id="srcHost">—</b></div>
+        <div class="kv"><span>类型</span><b id="type">—</b></div>
+        <div class="kv"><span>总时长</span><b id="duration">—</b></div>
+      </section>
+
+      <section class="card cache">
+        <h4>缓存进度</h4>
+        <div class="bar segbar" id="segBar"></div>
+        <div class="cache-nums"><span id="cacheCount">0 / 0 分片</span><span id="cachePct">0%</span></div>
+        <div class="cache-live"><span>剩余</span><b id="cacheActive">0</b></div>
+        <div class="cache-live"><span>下载速度</span><b id="cacheSpeed">0 KB/s</b></div>
+        <div class="cache-live"><span>平均速度</span><b id="cacheAvg">0 KB/s</b></div>
+        <div class="cache-live"><span>已缓存</span><b id="cacheMB">0 MB</b></div>
+        <div class="kv"><span>失败分片</span><div class="kv-r"><b id="cacheFailed" class="bad-num">0</b><button id="retryFailedBtn" class="mini-btn">重试</button></div></div>
+      </section>
+
+      <section class="card actions">
+        <button class="btn primary" id="exportBtn" disabled>导出 MP4</button>
+        <button class="btn ghost" id="clearBtn">清空本次缓存</button>
+        <div class="tip" id="exportTip">缓存全部分片后可用</div>
+      </section>
+    </aside>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="../lib/hls.light.min.js"></script>
+  <script type="module" src="player.js"></script>
+</body>
+</html>

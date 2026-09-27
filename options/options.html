@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HLS Cache Player · 设置</title>
+<style>
+:root{--accent:#22D3EE;--bg:#F7F8FA;--card:#fff;--line:#E5E7EB;--ink:#111827;--muted:#6B7280}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink);padding:40px 20px;line-height:1.6}
+.wrap{max-width:680px;margin:0 auto}
+h1{font-size:24px;margin-bottom:6px}
+.sub{color:var(--muted);font-size:14px;margin-bottom:26px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px 24px;margin-bottom:16px}
+.card h2{font-size:15px;margin-bottom:6px}
+.card .desc{color:var(--muted);font-size:12.5px;margin-bottom:16px}
+.row{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid #f0f1f4;font-size:14px;gap:16px}
+.row:last-child{border-bottom:none}
+.row label{color:#374151}
+.row .ctrl{display:flex;align-items:center;gap:8px}
+.row input[type=number]{width:84px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;font-size:14px;text-align:right}
+.row input[type=number]:focus{outline:none;border-color:var(--accent)}
+.row select{padding:6px 10px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:#fff}
+.switch{position:relative;width:40px;height:22px;flex:none}
+.switch input{opacity:0;width:0;height:0}
+.switch .sl{position:absolute;inset:0;background:#d1d5db;border-radius:999px;transition:.2s;cursor:pointer}
+.switch .sl:before{content:"";position:absolute;width:16px;height:16px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+.switch input:checked+.sl{background:var(--accent)}
+.switch input:checked+.sl:before{transform:translateX(18px)}
+.actions{display:flex;gap:12px;margin-top:8px}
+.btn{padding:10px 22px;border:none;border-radius:9px;font-size:14px;font-weight:700;cursor:pointer}
+.btn.primary{background:var(--accent);color:#0B0E14}
+.btn.primary:hover{background:#4ade80}
+.btn.ghost{background:transparent;border:1px solid var(--line);color:#374151}
+.btn.ghost:hover{background:#eef1f4}
+.toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);background:#111827;color:#fff;padding:10px 18px;border-radius:9px;font-size:13px;opacity:0;transition:opacity .3s;pointer-events:none}
+.toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>HLS Cache Player 设置</h1>
+  <p class="sub">自动嗅探、边播边缓存、Seek 预加载与导出行为。修改保存后立即生效。</p>
+
+  <div class="card">
+    <h2>网络与缓存</h2>
+    <div class="desc">控制分片下载与缓存策略</div>
+    <div class="row"><label>自动嗅探网页 m3u8</label><div class="ctrl"><label class="switch"><input type="checkbox" id="sniffEnabled"><span class="sl"></span></label></div></div>
+    <div class="row"><label>最大并发请求数</label><input type="number" id="maxConcurrent" min="1" max="16"></div>
+    <div class="row"><label>单分片请求超时（秒）</label><input type="number" id="timeoutMs" min="1" max="120"></div>
+    <div class="row"><label>失败重试次数</label><input type="number" id="maxRetry" min="0" max="10"></div>
+    <div class="row"><label>关闭播放页后清理本次缓存</label><div class="ctrl"><label class="switch"><input type="checkbox" id="cleanAfter" checked><span class="sl"></span></label></div></div>
+  </div>
+
+  <div class="card">
+    <h2>Seek 预加载策略</h2>
+    <div class="desc">拖动进度条时优先加载目标前后资源，避免卡顿</div>
+    <div class="row"><label>Seek 向前预加载分片数</label><input type="number" id="seekBefore" min="0" max="20"></div>
+    <div class="row"><label>Seek 向后预加载分片数</label><input type="number" id="seekAfter" min="0" max="30"></div>
+    <div class="row"><label>正常播放向后预加载数</label><input type="number" id="playAhead" min="0" max="60"></div>
+  </div>
+
+  <div class="card">
+    <h2>导出设置</h2>
+    <div class="desc">缓存全部分片后导出为本地视频文件</div>
+    <div class="row"><label>按网页标题建子文件夹</label><div class="ctrl"><label class="switch"><input type="checkbox" id="folderFromTitle" checked><span class="sl"></span></label></div></div>
+    <div class="row"><label>导出封装格式</label>
+      <select id="format"><option value="mp4">MP4</option><option value="mkv">MKV</option><option value="mov">MOV</option></select>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="btn primary" id="save">保存设置</button>
+    <button class="btn ghost" id="reset">恢复默认</button>
+  </div>
+</div>
+<div class="toast" id="toast">已保存</div>
+
+<script src="options.js"></script>
+</body>
+</html>
