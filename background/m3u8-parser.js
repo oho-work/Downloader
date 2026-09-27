@@ -15,7 +15,7 @@ import { absolutize } from '../utils/id.js';
  */
 export function parsePlaylist(text, baseUrl) {
   const out = {
-    isMaster: false, variants: [], segments: [],
+    isMaster: false, variants: [], segments: [], mediaSequence: 0,
     totalDuration: 0, live: false, encrypted: false, targetDuration: 0,
   };
   const lines = String(text).split(/\r?\n/);
@@ -43,12 +43,14 @@ export function parsePlaylist(text, baseUrl) {
       continue;
     }
     if (line.startsWith('#EXTINF')) { cur.dur = parseFloat(line.split(':')[1]) || 0; continue; }
+    if (line.startsWith('#EXT-X-MEDIA-SEQUENCE:')) { out.mediaSequence = Number(line.slice(22)) || 0; continue; }
     if (line.startsWith('#EXT-X-TARGETDURATION')) { out.targetDuration = parseInt(line.split(':')[1], 10) || 0; continue; }
     if (line.startsWith('#EXT-X-DISCONTINUITY')) { discontinuity = true; continue; }
     if (line.startsWith('#EXT-X-ENDLIST')) { out.live = false; continue; }
     if (!line.startsWith('#') && line.length) {
       out.segments.push({
         idx: out.segments.length,
+        sequence: out.mediaSequence + out.segments.length,
         url: absolutize(line, baseUrl),
         duration: cur.dur,
         start: out.totalDuration,

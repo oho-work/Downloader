@@ -85,7 +85,6 @@ export async function getSegment(videoId, segIdx) {
 }
 export async function delAllSegments(videoId) {
   const s = await tx('segments', 'readwrite');
-  const store = s.index ? null : null;
   // 按前缀游标删除
   return new Promise((res, rej) => {
     const range = IDBKeyRange.bound(`${videoId}:`, `${videoId}:\uffff`);

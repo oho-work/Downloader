@@ -93,12 +93,10 @@ export class HlsCacheLoader {
   }
 
   async _loadManifest(context, callbacks, requestId) {
-    logger.info('loader', 'GET_MANIFEST', diagnosticUrl(context.url));
     try {
       const resp = await sendRuntimeMessage({ type: 'GET_MANIFEST', videoId: this.videoId, url: context.url });
       if (!this._isCurrent(requestId)) return;
       if (resp && resp.ok) {
-        logger.info('loader', 'manifest ok len=' + resp.text.length);
         // hls.js 期望 stats.parsing/loading 结构完整（onSuccess 会写 t.parsing.start / t.loading.end）
         callbacks.onSuccess({ data: resp.text }, this.stats, context, undefined);
       } else {
@@ -119,10 +117,13 @@ export class HlsCacheLoader {
 
     // 主清单/动态分片：追加注册
     if (!seg) {
-      logger.debug('loader', 'ADD_SEGMENTS url=' + url);
+      const key = context.frag?.decryptdata;
+      const keyLine = key?.method && key.method !== 'NONE' && key.uri
+        ? `#EXT-X-KEY:METHOD=${key.method},URI="${key.uri}"${key.iv ? `,IV=0x${Array.from(key.iv, b => b.toString(16).padStart(2, '0')).join('')}` : ''}`
+        : null;
       await sendRuntimeMessage({
         type: 'ADD_SEGMENTS', videoId: this.videoId,
-        segments: [{ url, duration: (context.frag && context.frag.duration) || 0 }],
+        segments: [{ url, duration: context.frag?.duration || 0, sequence: context.frag?.sn, key: keyLine }],
       });
       if (!this._isCurrent(requestId)) return;
       meta = await getMeta(this.videoId);
@@ -130,27 +131,22 @@ export class HlsCacheLoader {
       seg = meta && meta.segments.find(x => x.url === url);
       if (!seg) { logger.error('loader', 'cannot register segment', diagnosticUrl(url)); callbacks.onError({ code: 1, text: 'cannot register segment' }); return; }
     }
-    logger.debug('loader', 'seg url-mapped idx=' + seg.idx);
 
     const deadline = Date.now() + 60000;
-    let waited = 0;
     while (Date.now() < deadline) {
       if (!runtimeAvailable() || !this._isCurrent(requestId)) return;
       const blob = await getSegment(this.videoId, seg.idx);
       if (!this._isCurrent(requestId)) return;
       if (blob && blob.buffer) {
-        logger.debug('loader', 'seg cache hit idx=' + seg.idx + ' size=' + blob.buffer.byteLength + ' waitedMs=' + waited);
         this.stats.loaded = this.stats.total = blob.buffer.byteLength;
         this.stats.loading.end = performance.now();
         this.stats.chunkCount = 1;
         callbacks.onSuccess({ data: blob.buffer }, this.stats, context, undefined);
         return;
       }
-      if (waited === 0) logger.debug('loader', 'seg miss, scheduling idx=' + seg.idx);
       await sendRuntimeMessage({ type: 'SCHEDULE_SEG', videoId: this.videoId, segIdx: seg.idx });
       if (!this._isCurrent(requestId)) return;
       await sleep(350);
-      waited += 350;
     }
     if (!this._isCurrent(requestId)) return;
     logger.error('loader', 'seg timeout idx=' + seg.idx + ' url=' + diagnosticUrl(url));

@@ -1,11 +1,11 @@
 // background/service-worker.js
 // 后台入口：嗅探 + 任务注册 + 分片调度 + 生命周期 + 心跳
 import { registerSniffer, listStreams, clearTab, ingestContentStream, setSniffEnabled } from './sniffer.js';
-import { getSession, clearSession, purgeExpired, bindSession } from './session.js';
+import { getSession, clearSession, purgeExpired } from './session.js';
 import { parsePlaylist } from './m3u8-parser.js';
-import { scheduler, dedupe } from './scheduler.js';
+import { scheduler, dedupe, PRIO } from './scheduler.js';
 import { saveMeta, getMeta, delMeta, delAllSegments, listAllMeta, saveSettings, getSettings, SEG_STATE } from './cache-store.js';
-import { videoIdFor, sanitizeTitle, domainOf, diagnosticUrl } from '../utils/id.js';
+import { videoIdFor, sanitizeTitle, domainOf } from '../utils/id.js';
 import { logger } from '../utils/logger.js';
 
 const DEFAULTS = {
@@ -17,6 +17,65 @@ const SETTINGS_KEYS = ['sniffEnabled', 'maxConcurrent', 'timeoutMs', 'maxRetry']
 const taskCtx = new Map();
 // 播放页 tab -> videoId，用于关标签兜底清理
 const tabVideo = new Map();
+const PLAYER_TABS_KEY = 'playerTabs';
+let tabVideoWrite = Promise.resolve();
+let playerTabTransition = Promise.resolve();
+
+function queuePlayerTabTransition(action) {
+  playerTabTransition = playerTabTransition.catch(() => {}).then(action);
+  playerTabTransition.catch(e => logger.warn('sw', 'cleanup video failed', e && e.message));
+}
+
+function playerVideoId(url) {
+  try {
+    const page = new URL(url);
+    const player = new URL(chrome.runtime.getURL('player/player.html'));
+    return page.protocol === player.protocol && page.host === player.host && page.pathname === player.pathname
+      ? page.searchParams.get('v') : null;
+  } catch { return null; }
+}
+
+const tabVideoReady = (async () => {
+  const stored = await chrome.storage.session.get(PLAYER_TABS_KEY);
+  for (const [tabId, videoId] of Object.entries(stored[PLAYER_TABS_KEY] || {})) {
+    if (Number.isInteger(Number(tabId)) && typeof videoId === 'string') tabVideo.set(Number(tabId), videoId);
+  }
+  const tabs = await chrome.tabs.query({});
+  const active = new Map();
+  for (const tab of tabs) {
+    const videoId = tab.pendingUrl ? playerVideoId(tab.pendingUrl)
+      : tab.url ? playerVideoId(tab.url) : tabVideo.get(tab.id);
+    if (tab.id != null && videoId) active.set(tab.id, videoId);
+  }
+  tabVideo.clear();
+  for (const [tabId, videoId] of active) tabVideo.set(tabId, videoId);
+  await persistPlayerTabs();
+  const activeVideos = new Set(active.values());
+  for (const meta of await listAllMeta()) {
+    if (!activeVideos.has(meta.videoId)) await cleanupVideo(meta.videoId);
+  }
+})().catch(e => logger.warn('sw', 'restore player tabs failed', e && e.message));
+
+function persistPlayerTabs() {
+  const snapshot = Object.fromEntries(tabVideo);
+  tabVideoWrite = tabVideoWrite.catch(() => {}).then(() => chrome.storage.session.set({ [PLAYER_TABS_KEY]: snapshot }));
+  return tabVideoWrite;
+}
+
+function rememberPlayerTab(tabId, videoId) {
+  if (tabId == null || !videoId || tabVideo.get(tabId) === videoId) return Promise.resolve();
+  tabVideo.set(tabId, videoId);
+  return persistPlayerTabs();
+}
+
+function forgetPlayerTab(tabId) {
+  if (!tabVideo.delete(tabId)) return Promise.resolve();
+  return persistPlayerTabs();
+}
+
+function isPlayerSender(sender, videoId) {
+  return sender.tab?.id != null && playerVideoId(sender.url || sender.tab.url) === videoId;
+}
 
 function hasOtherPlayer(videoId, exceptTabId = null) {
   for (const [tabId, id] of tabVideo) {
@@ -57,6 +116,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 async function handle(msg, sender) {
+  await tabVideoReady;
   // ── 自愈：SW 空闲被回收/重启后 registry 为空，但 IDB 仍有 meta 且播放端在活动 ──
   // 此时 SCHEDULE_BATCH/SCHEDULE_SEG 只调 enqueue（registry 空直接 return），卡死分片无人重下。
   // 任意播放消息进来时，若 registry 缺失且 IDB 有 meta → 从缓存恢复调度，杜绝"尾部卡死"。
@@ -70,7 +130,6 @@ async function handle(msg, sender) {
       await scheduler.recover(msg.videoId);   // 重置遗留 DOWNLOADING→PENDING（SW 重启后 running 为空，无正在下载，安全）
       await scheduler.refreshM3u8(msg.videoId);
       scheduler.enqueueFull(msg.videoId);
-      logger.info('sw', `自愈恢复 ${msg.videoId}（SW 重启后 registry 为空，从 IDB 恢复调度）`);
     }
   }
   switch (msg && msg.type) {
@@ -108,35 +167,37 @@ async function handle(msg, sender) {
 
       const videoId = videoIdFor(stream.url);
       // 解析清单，构建 meta（主清单 segments 为空，由播放端动态补齐）
-      let meta;
-      try {
-        const text = await fetchText(stream.url, headers);
-        const p = parsePlaylist(text, stream.url);
-        meta = {
-          videoId, m3u8Url: stream.url, title, domain: domainOf(stream.url),
-          live: p.live, isMaster: p.isMaster, encrypted: p.encrypted,
-          totalDuration: p.totalDuration, status: 'playing',
-          segments: p.segments.map(s => ({ idx: s.idx, url: s.url, duration: s.duration, start: s.start, state: SEG_STATE.PENDING, size: 0, key: s.key || null })),
-        };
-      } catch (e) {
-        logger.warn('sw', 'parse m3u8 fail, fallback live meta', e && e.message);
-        meta = { videoId, m3u8Url: stream.url, title, domain: domainOf(stream.url), live: true, isMaster: false, encrypted: false, totalDuration: 0, status: 'playing', segments: [] };
+      let meta = await getMeta(videoId);
+      if (!meta || meta.m3u8Url !== stream.url) {
+        try {
+          const text = await fetchText(stream.url, headers);
+          const p = parsePlaylist(text, stream.url);
+          meta = {
+            videoId, m3u8Url: stream.url, title, domain: domainOf(stream.url),
+            live: p.live, isMaster: p.isMaster, encrypted: p.encrypted,
+            totalDuration: p.totalDuration, status: 'playing',
+            segments: p.segments.map(s => ({ idx: s.idx, sequence: s.sequence, url: s.url, duration: s.duration, start: s.start, state: SEG_STATE.PENDING, size: 0, key: s.key || null })),
+          };
+        } catch (e) {
+          logger.warn('sw', 'parse m3u8 fail, fallback live meta', e && e.message);
+          meta = { videoId, m3u8Url: stream.url, title, domain: domainOf(stream.url), live: true, isMaster: false, encrypted: false, totalDuration: 0, status: 'playing', segments: [] };
+        }
+        await saveMeta(meta);
       }
-      await saveMeta(meta);
 
       const url = chrome.runtime.getURL('player/player.html') + '?v=' + encodeURIComponent(videoId);
       const newTab = await chrome.tabs.create({ url });
-      tabVideo.set(newTab.id, videoId);
+      await rememberPlayerTab(newTab.id, videoId);
       taskCtx.set(videoId, { m3u8Url: stream.url, headers, live: meta.live, domain: meta.domain });
       // 注册调度任务（tabId 指向新播放页，用于进度广播）
       scheduler.register(videoId, { meta, headers, tabId: newTab.id, settings });
-      logger.info('sw', `open ${videoId} <- ${diagnosticUrl(stream.url)}`);
       return { ok: true, videoId, url };
     }
 
     case 'GET_TASK_CTX': {
       const meta = await getMeta(msg.videoId);
       if (!meta) return { ok: false, error: 'task not found' };
+      if (isPlayerSender(sender, msg.videoId)) await rememberPlayerTab(sender.tab.id, msg.videoId);
       let t = taskCtx.get(msg.videoId);
       if (!t) {
         // SW 内存任务丢失（重启/刷新）但 IDB 缓存仍在 → 从缓存恢复，支持离线续看/导出
@@ -147,8 +208,6 @@ async function handle(msg, sender) {
         await scheduler.recover(msg.videoId);   // 重置遗留 DOWNLOADING→PENDING，避免卡死分片不被重下
         await scheduler.refreshM3u8(msg.videoId);
         scheduler.enqueueFull(msg.videoId);     // 补齐剩余（含刚重置的分片）
-        if (sender.tab) tabVideo.set(sender.tab.id, msg.videoId); // 关标签时仍清理缓存
-        logger.info('sw', `GET_TASK_CTX 从缓存恢复 ${msg.videoId}`);
       }
       return { ok: true, ctx: { videoId: msg.videoId, m3u8Url: t.m3u8Url, title: meta && meta.title, domain: t.domain, live: t.live, isMaster: meta && meta.isMaster, segments: meta && meta.segments } };
     }
@@ -177,6 +236,7 @@ async function handle(msg, sender) {
     case 'PLAYER_READY': {
       const meta = await getMeta(msg.videoId);
       if (meta) {
+        if (isPlayerSender(sender, msg.videoId)) await rememberPlayerTab(sender.tab.id, msg.videoId);
         scheduler.register(msg.videoId, { meta, headers: taskCtx.get(msg.videoId)?.headers, tabId: sender.tab && sender.tab.id, settings: await loadSettings() });
         await scheduler.recover(msg.videoId);
         await scheduler.refreshM3u8(msg.videoId); // 先刷新签名，后台补齐用最新 URL
@@ -187,7 +247,7 @@ async function handle(msg, sender) {
 
     // 播放端请求下载单个分片（Loader 未命中缓存）
     case 'SCHEDULE_SEG': {
-      scheduler.enqueue(msg.videoId, msg.segIdx, PRIO_URGENT());
+      scheduler.enqueue(msg.videoId, msg.segIdx, PRIO.URGENT);
       return { ok: true };
     }
     // 鼠标调整进度条：中断当前所有下载，目标区域(urgent+seek)最高优先，被中断的回低优先级等待继续缓存
@@ -196,9 +256,8 @@ async function handle(msg, sender) {
       if (msg.urgent != null) {
         scheduler.interruptAndPrioritize(msg.videoId, msg.urgent, msg.seek || []);
       } else {
-        (msg.ahead || []).forEach(i => scheduler.enqueue(msg.videoId, i, PRIO_AHEAD()));
+        (msg.ahead || []).forEach(i => scheduler.enqueue(msg.videoId, i, PRIO.AHEAD));
       }
-      logger.debug('sw', `batch ${msg.videoId} urgent=${msg.urgent != null ? msg.urgent : '-'} seek=${(msg.seek || []).length} ahead=${(msg.ahead || []).length}`);
       return { ok: true };
     }
 
@@ -217,21 +276,20 @@ async function handle(msg, sender) {
     case 'ADD_SEGMENTS': {
       const meta = await getMeta(msg.videoId);
       if (meta) {
-        let changed = false, dup = 0;
+        let changed = false;
         for (const s of msg.segments || []) {
           if (!meta.segments.some(x => x.url === s.url)) {
-            meta.segments.push({ idx: meta.segments.length, url: s.url, duration: s.duration || 0, start: s.start != null ? s.start : 0, state: SEG_STATE.PENDING, size: 0, key: s.key || null });
+            meta.segments.push({ idx: meta.segments.length, sequence: s.sequence, url: s.url, duration: s.duration || 0, start: s.start != null ? s.start : 0, state: SEG_STATE.PENDING, size: 0, key: s.key || null });
             changed = true;
-          } else { dup++; }
+          }
         }
-        logger.debug('sw', `add segments ${msg.videoId} 新增=${msg.segments ? msg.segments.length - dup : 0} 重复跳过=${dup} 当前总数=${meta.segments.length}`);
         if (changed) { await saveMeta(meta); scheduler.register(msg.videoId, { meta, headers: taskCtx.get(msg.videoId)?.headers, tabId: sender.tab && sender.tab.id, settings: await loadSettings() }); }
       }
       return { ok: true };
     }
 
     // 播放页卸载/刷新：只释放内存调度，保留 IDB 缓存。
-    // 真正删除缓存仅发生在 tabs.onRemoved（用户关闭标签页）。
+    // 缓存在最后一个播放页关闭或导航离开时删除，刷新时保留。
     case 'CLOSE_PLAYER': {
       const tabId = sender.tab && sender.tab.id;
       // 同一清单可能被多个播放器标签页打开。一个页面卸载时只能释放
@@ -298,8 +356,6 @@ async function handle(msg, sender) {
   }
 }
 
-function PRIO_URGENT() { return 3; } function PRIO_SEEK() { return 2; } function PRIO_AHEAD() { return 1; } function PRIO_FULL() { return 0; }
-
 async function fetchText(url, headers) {
   const res = await fetch(url, { headers: cleanH(headers), credentials: 'include', cache: 'no-store' });
   if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -349,24 +405,28 @@ async function recoverStuckSegments() {
     let t = taskCtx.get(m.videoId);
     if (!t) { t = { m3u8Url: m.m3u8Url, headers: undefined, live: m.live, domain: m.domain }; taskCtx.set(m.videoId, t); }
     scheduler.register(m.videoId, { meta: m, headers: t.headers, tabId: t.tabId, settings });
-    let n = 0;
     for (const s of m.segments) {
-      if (s.state === SEG_STATE.PENDING) { scheduler.enqueue(m.videoId, s.idx, PRIO_FULL()); n++; }
+      if (s.state === SEG_STATE.PENDING) scheduler.enqueue(m.videoId, s.idx, PRIO.FULL);
     }
-    if (resetIdx.length || n) logger.info('sw', `心跳巡检 ${m.videoId} 重置#${resetIdx.join(',')} 入队PENDING=${n}`);
   }
 }
 chrome.tabs.onRemoved.addListener((tabId) => {
-  clearTab(tabId, 'tab removed'); clearSession(tabId);
+  clearTab(tabId, 'tab removed').catch(() => {});
+  clearSession(tabId);
+  queuePlayerTabTransition(() => onPlayerTabRemoved(tabId));
+});
+
+async function onPlayerTabRemoved(tabId) {
+  await tabVideoReady;
   const videoId = tabVideo.get(tabId);
   if (videoId) {
-    tabVideo.delete(tabId);
+    await forgetPlayerTab(tabId);
     // 只有最后一个播放器标签页关闭后才清理视频缓存。否则关闭其中一个
     // 标签会把另一个标签正在播放/导出的数据一起删掉。
     if (hasOtherPlayer(videoId)) return;
-    cleanupVideo(videoId).catch(e => logger.warn('sw', 'cleanup video failed', e && e.message));
+    await cleanupVideo(videoId);
   }
-});
+}
 
 async function cleanupVideo(videoId) {
   scheduler.cancelAll(videoId);
@@ -379,25 +439,22 @@ async function cleanupVideo(videoId) {
 // 页面导航会触发 onRemoved 之前的 pagehide，不能依赖标签页关闭事件才清理。
 // 同时清掉该标签页的嗅探候选和会话请求头，避免新网址继承旧页面状态。
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo && (changeInfo.url || changeInfo.status === 'loading')) {
-    logger.info('sniff-diag', `tab update tab=${tabId} status=${changeInfo.status || '-'} changedUrl=${diagnosticUrl(changeInfo.url)} tabUrl=${diagnosticUrl(tab && tab.url)} clear=${!!changeInfo.url}`);
-  }
   if (!changeInfo || !changeInfo.url) return;
-  clearTab(tabId, 'tab URL changed');
+  clearTab(tabId, 'tab URL changed').catch(() => {});
   clearSession(tabId);
-  const videoId = tabVideo.get(tabId);
-  if (!videoId) return;
-  let samePlayer = false;
-  try {
-    const u = new URL(changeInfo.url);
-    samePlayer = u.href.startsWith(chrome.runtime.getURL('player/player.html')) && u.searchParams.get('v') === videoId;
-  } catch {}
-  if (samePlayer) return;
-  tabVideo.delete(tabId);
-  if (!hasOtherPlayer(videoId)) cleanupVideo(videoId).catch(() => {});
+  queuePlayerTabTransition(() => onPlayerTabUpdated(tabId, changeInfo.url));
 });
 
+async function onPlayerTabUpdated(tabId, nextUrl) {
+  await tabVideoReady;
+  const videoId = tabVideo.get(tabId);
+  if (!videoId) return;
+  if (playerVideoId(nextUrl) === videoId) return;
+  await forgetPlayerTab(tabId);
+  if (!hasOtherPlayer(videoId)) await cleanupVideo(videoId);
+}
+
 registerSniffer();
-scheduler.startStatsLog();
+scheduler.startWatchdog();
 scheduler.startSpeedTicker();
-loadSettings().then(() => logger.info('sw', 'HLS Cache Player full build ready'));
+loadSettings().catch(e => logger.error('sw', 'load settings failed', e && e.message));

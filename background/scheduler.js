@@ -2,7 +2,6 @@
 // 分片调度引擎：并发池 + 优先级抢占 + 单分片超时 + 指数退避重试 + 签名过期刷新
 import { putSegment, updateSegState, getMeta, saveMeta, SEG_STATE } from './cache-store.js';
 import { parsePlaylist } from './m3u8-parser.js';
-import { diagnosticUrl } from '../utils/id.js';
 import { logger } from '../utils/logger.js';
 
 export const PRIO = { URGENT: 3, SEEK: 2, AHEAD: 1, FULL: 0 };
@@ -179,10 +178,11 @@ class Scheduler {
     if (!task) { this.pump(); return; }
     const seg = task.meta.segments.find(s => s.idx === segIdx);
     const ctrl = new AbortController();
-    this.running.set(key, { ctrl, prio, startTs: Date.now(), giveUp: false }); // 先占位，让 pump 的并发上限及时生效（否则 await 前的异步把 running.size 滞空，276 并发全跑起来）
-    await updateSegState(videoId, segIdx, SEG_STATE.DOWNLOADING, { startedAt: Date.now() }); // startedAt 供心跳巡检区分"正常下载中"与"卡死遗留"
-    seg.state = SEG_STATE.DOWNLOADING; // 同步内存，供 enqueue 去重判断
+    const slot = { ctrl, prio, startTs: Date.now(), giveUp: false };
+    this.running.set(key, slot); // Reserve capacity before the first await.
     try {
+      await updateSegState(videoId, segIdx, SEG_STATE.DOWNLOADING, { startedAt: Date.now() });
+      seg.state = SEG_STATE.DOWNLOADING;
       const buffer = await this.fetchWithRetry(videoId, seg, ctrl);
       // A tab can close while fetch is resolving. Do not write a late response
       // back into a task that has already been unregistered/cancelled.
@@ -196,12 +196,11 @@ class Scheduler {
       if (seg.url) { if (!task.doneUrls.has(seg.url)) { task.doneUrls.add(seg.url); task.done++; } } else { task.done++; }
       task.cachedBytes = (task.cachedBytes || 0) + buffer.byteLength;
       this.broadcast(videoId);
-      logger.debug('scheduler', `seg ${segIdx} done ${buffer.byteLength}B`);
     } catch (e) {
+      if (this.running.get(key) && this.running.get(key) !== slot) return;
       if (e && e.message === 'preempted') {
         // 看门狗判死的下载（giveUp）：直接记为失败，避免 abort 后回 PENDING 又被重新调度、再次卡死
-        const _m = this.running.get(key);
-        if (_m && _m.giveUp) {
+        if (slot.giveUp) {
           task.failed++;
           await updateSegState(videoId, segIdx, SEG_STATE.FAILED, { failReason: 'watchdog 下载超时放弃' });
           seg.state = SEG_STATE.FAILED; // 同步内存
@@ -221,7 +220,7 @@ class Scheduler {
       this.broadcast(videoId);
       this.notifySegFailed(videoId, segIdx);
     } finally {
-      this.running.delete(key);
+      if (this.running.get(key) === slot) this.running.delete(key);
       this.pump();
       // The completion path runs before finally removes the last running
       // entry. Re-broadcast after removal so ALL_DONE sees active=0.
@@ -249,7 +248,6 @@ class Scheduler {
             try {
               const r2 = await fetch(seg.url, { headers: { ...headers, Referer: task.meta.m3u8Url }, signal, credentials: 'include', cache: 'no-store' });
               if (r2.ok) return await r2.arrayBuffer();
-              logger.warn('scheduler', `seg ${seg.idx} 403 补Referer=${diagnosticUrl(task.meta.m3u8Url)} 仍${r2.status}`);
             } catch (e) { /* 忽略，走刷新逻辑 */ }
           }
           // 签名过期：刷新后换新 URL 立即重试（无退避）；若刷新未生效（url 未变）则按失败处理，避免无限循环卡进度
@@ -257,15 +255,13 @@ class Scheduler {
           const s2 = task.meta.segments.find(x => x.idx === seg.idx);
           const updated = s2 && s2.url && s2.url !== seg.url;
           if (updated) {
-            logger.info('scheduler', `seg ${seg.idx} ${res.status} 签名刷新 url已更新 刷新#${++refreshRetries}`);
+            refreshRetries++;
             seg.url = s2.url;
             if (refreshRetries > maxRetry) {
-              logger.warn('scheduler', `seg ${seg.idx} 连续 403 刷新 ${refreshRetries} 次仍失败，判死 url=${diagnosticUrl(seg.url)}`);
               throw new Error(`HTTP 403 持续（刷新${refreshRetries}次仍未解决）`);
             }
           } else {
-            // url 未变仍 403：不是签名过期能解决的（URL 拼错/防盗链/CDN 失效），快速失败并输出完整诊断
-            logger.warn('scheduler', `seg ${seg.idx} ${res.status} url=${diagnosticUrl(seg.url)} 刷新后url未变 Referer捕获=${headers.Referer ? '有' : '无'} Origin=${headers.Origin ? '有' : '无'} attempt=${attempt}`);
+            // A refresh that keeps the same URL cannot resolve an expired signature.
             throw new Error(`签名过期 HTTP ${res.status}（刷新后URL未变，无法续期）`);
           }
         } else if (!res.ok) {
@@ -287,9 +283,8 @@ class Scheduler {
         try {
           await this.refreshM3u8(videoId);
           const s2 = task.meta.segments.find(x => x.idx === seg.idx);
-          if (s2 && s2.url && s2.url !== seg.url) { seg.url = s2.url; logger.info('scheduler', `seg ${seg.idx} timeout 刷新url已更新 attempt=${attempt}`); }
-          else logger.warn('scheduler', `seg ${seg.idx} timeout 刷新后url未变 attempt=${attempt}`);
-        } catch (e) { logger.warn('scheduler', `seg ${seg.idx} timeout 刷新异常`, e && e.message); }
+          if (s2 && s2.url && s2.url !== seg.url) seg.url = s2.url;
+        } catch {}
       }
       attempt++;
       const delay = Math.min(8000, 500 * Math.pow(2, attempt - 1));
@@ -353,17 +348,17 @@ class Scheduler {
             old.url = ns.url;
             old.duration = ns.duration;
             old.start = ns.start;
+            old.sequence = ns.sequence;
             old.key = ns.key || null;
           } else {
             meta.segments.push({
-              idx: ns.idx, url: ns.url, duration: ns.duration, start: ns.start,
+              idx: ns.idx, sequence: ns.sequence, url: ns.url, duration: ns.duration, start: ns.start,
               state: SEG_STATE.PENDING, size: 0, key: ns.key || null,
             });
           }
         }
         await saveMeta(meta);
         task.meta = meta;
-        logger.info('scheduler', `m3u8 refreshed ${videoId} segs=${p.segments.length}`);
       } else {
         logger.warn('scheduler', `refresh m3u8 ${videoId} 解析失败或分片为空 segs=${p.segments.length}`);
       }
@@ -392,12 +387,10 @@ class Scheduler {
     const task = this.registry.get(videoId);
     if (!task) return;
     const seen = new Set();
-    let n = 0;
     task.meta.segments.forEach(s => {
       if (s.url) { if (seen.has(s.url)) return; seen.add(s.url); }
-      if (s.state === SEG_STATE.PENDING || s.state === SEG_STATE.FAILED) { this.enqueue(videoId, s.idx, PRIO.FULL); n++; }
+      if (s.state === SEG_STATE.PENDING || s.state === SEG_STATE.FAILED) this.enqueue(videoId, s.idx, PRIO.FULL);
     });
-    if (n) logger.info('scheduler', `enqueueFull ${videoId} 入队 ${n} 个待下载`);
   }
 
   // 重试失败分片：重置为 PENDING 并重新入队
@@ -442,7 +435,6 @@ class Scheduler {
     seekIdxList.forEach(i => this.enqueue(videoId, i, PRIO.SEEK));
     this.sort();
     this.pump();
-    logger.info('scheduler', `interrupt ${videoId} 中断 ${stopped.length} 个下载, urgent=${urgentIdx}, seek=${seekIdxList.length}, queue=${this.queue.length}`);
   }
 
   broadcast(videoId, force = false) {
@@ -451,14 +443,10 @@ class Scheduler {
     const now = Date.now();
     if (!force && now - task.lastBroadcast < 250) return;
     task.lastBroadcast = now;
-    // total 用去重后的唯一分片数；done/failed 用真实累加器（转存成功/失败数量）。
-    // 注意：task.meta 内存中的 state 由 updateSegState 只写 IndexedDB、不回流内存而保持陈旧，
-    // 不能按 state 过滤统计（会把转存成功误判），必须用 run() 里 putSegment 成功后才 ++ 的累加器。
-    const total = dedupe(task.meta.segments).length;
-    // Derive counters from the same unique state set used by completion and
-    // UI rendering. Incremental counters can diverge after task recovery.
-    const done = dedupe(task.meta.segments).filter(s => s.state === SEG_STATE.DONE).length;
-    const failed = dedupe(task.meta.segments).filter(s => s.state === SEG_STATE.FAILED).length;
+    const unique = dedupe(task.meta.segments);
+    const total = unique.length;
+    const done = unique.filter(s => s.state === SEG_STATE.DONE).length;
+    const failed = unique.filter(s => s.state === SEG_STATE.FAILED).length;
     task.done = done;
     task.failed = failed;
     // 实际并发执行中的请求数（running 池大小，≤ maxConcurrent）
@@ -481,25 +469,13 @@ class Scheduler {
       active, bytes: task.cachedBytes || 0, speed,
     };
     if (task.tabId != null) chrome.runtime.sendMessage(msg).catch(() => {});
-    logger.debug('scheduler', `prog ${videoId} done=${done}/${total} failed=${failed} active=${active} queue=${this.queue.length} speed=${Math.round(speed / 1024)}KB/s`);
-    // 接近完成但没到 100% 时，输出剩余未完成分片（idx/url/state），定位"卡在 98%/下载中N"的分片是谁
-    if (total && done < total && total - done <= 3) {
-      const _now = Date.now();
-      if (!task._nearEndT || _now - task._nearEndT > 10000) {
-        task._nearEndT = _now;
-        const rem = task.meta.segments.filter(s => s && s.state !== SEG_STATE.DONE).map(s => `#${s.idx} st=${s.state}`);
-        if (rem.length) logger.debug('scheduler', `nearEnd ${videoId} 剩 ${total - done} 未完成: ${rem.join(' | ')}`);
-      }
-    }
     // ALL_DONE 以去重后全部 state DONE 为准（而非累加器 done>=total）：重复 url 会让累加器虚高，
     // 提前触发会把仍在下载的真实分片 abort，导致导出缺数据
-    const uniqAll = dedupe(task.meta.segments);
     const queueForVideo = this.queue.some(x => x.videoId === videoId);
-    const allRealDone = uniqAll.length > 0 && uniqAll.every(s => s.state === SEG_STATE.DONE)
+    const allRealDone = total > 0 && done === total
       && active === 0 && !queueForVideo;
     if (allRealDone && !task.notifiedAll) {
       task.notifiedAll = true;
-      logger.info('scheduler', `ALL_DONE ${videoId} total=${total}`);
       // 全部缓存完成：彻底清空本视频的任何残留排队/下载，确保后台停止、UI 归零
       this.queue = this.queue.filter(t => t.videoId !== videoId);
       for (const [key, m] of this.running) {
@@ -509,10 +485,10 @@ class Scheduler {
     }
   }
 
-  // 定时状态快照（辅助诊断）：无论有无分片完成，每 5s 输出一次队列/运行状态
-  startStatsLog() {
-    if (this._statsTimer) return;
-    this._statsTimer = setInterval(() => {
+  // Detect requests that outlive normal retries even if the fetch never settles.
+  startWatchdog() {
+    if (this._watchdogTimer) return;
+    this._watchdogTimer = setInterval(() => {
       // 看门狗：任何分片下载超过阈值(90s)仍未完成 → 判失败，杜绝"active 卡死、done 不动、failed 恒 0"的假死
       const _now = Date.now();
       for (const [key, m] of this.running) {
@@ -521,9 +497,6 @@ class Scheduler {
           logger.warn('scheduler', `watchdog ${key} 下载超 ${((_now - m.startTs) / 1000).toFixed(0)}s 未完成，判失败`);
           m.ctrl.abort();
         }
-      }
-      if (this.running.size || this.queue.length) {
-        logger.debug('scheduler', `stats running=${this.running.size} queue=${this.queue.length}`);
       }
     }, 5000);
   }

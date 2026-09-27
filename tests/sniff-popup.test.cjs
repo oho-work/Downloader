@@ -12,6 +12,7 @@ class Element {
     this.dataset = {};
     this.style = {};
     this.handlers = [];
+    this.appended = [];
     this.children = new Map();
     this.classes = new Set();
     this.classList = {
@@ -20,12 +21,12 @@ class Element {
     };
   }
   addEventListener(type, handler) { if (type === 'click') this.handlers.push(handler); }
-  async click() { for (const handler of this.handlers) await handler({ currentTarget: this }); }
+  async click() { for (const handler of this.handlers) await handler({ currentTarget: this, stopPropagation() {} }); }
   querySelector(selector) {
     if (!this.children.has(selector)) this.children.set(selector, new Element());
     return this.children.get(selector);
   }
-  append() {}
+  append(child) { this.appended.push(child); }
   attachShadow() { return new Element(); }
 }
 
@@ -68,6 +69,42 @@ test('clear acts on the selected view without switching tabs or deleting the oth
   messages.length = 0;
   await get('clearBtn').click();
   assert.deepEqual(messages.map(m => m.type), ['CLEAR_SNIFF', 'LIST_STREAMS']);
+});
+
+test('deleting one cached item sends its id and refreshes only the cache view', async () => {
+  const nodes = new Map();
+  const get = id => {
+    if (!nodes.has(id)) nodes.set(id, new Element());
+    return nodes.get(id);
+  };
+  const sniffTab = new Element(); sniffTab.dataset.view = 'sniff';
+  const cacheTab = new Element(); cacheTab.dataset.view = 'cache';
+  const messages = [];
+  const videos = [{ videoId: 'v-one', title: 'First', segmentCount: 2, done: 1 }];
+  vm.runInNewContext(source('popup/popup.js'), {
+    document: {
+      getElementById: get,
+      createElement: () => new Element(),
+      querySelectorAll: () => [sniffTab, cacheTab],
+    },
+    chrome: {
+      tabs: { query: async () => [{ id: 7, url: 'https://example.com/watch' }] },
+      runtime: { sendMessage: async msg => {
+        messages.push(msg);
+        if (msg.type === 'LIST_CACHED') return { ok: true, videos };
+        return { ok: true, streams: [] };
+      } },
+    },
+    alert: error => assert.fail(error),
+  });
+  await settle();
+  await cacheTab.click();
+  await settle();
+  messages.length = 0;
+  const item = get('list').appended.at(-1);
+  await item.querySelector('.delete-btn').click();
+  assert.deepEqual(messages.map(m => m.type), ['DELETE_CACHE', 'LIST_CACHED']);
+  assert.equal(messages[0].videoId, 'v-one');
 });
 
 async function loadSniffer(fetch, set = async () => {}) {
@@ -127,6 +164,21 @@ test('a later request retries a playlist whose previous verification failed', as
   await settle();
   assert.equal((await sniffer.listStreams(7, page)).length, 1);
   assert.equal(attempts, 2);
+});
+
+test('a page navigation discards late verification from the previous page', async () => {
+  let resolveOld;
+  const oldFetch = new Promise(resolve => { resolveOld = resolve; });
+  const sniffer = await loadSniffer(url => url.includes('old.m3u8')
+    ? oldFetch
+    : Promise.resolve({ ok: true, text: async () => '#EXTM3U' }));
+  sniffer.ingestContentStream(7, 'https://cdn.example.com/old.m3u8', 'https://example.com/old');
+  sniffer.ingestContentStream(7, 'https://cdn.example.com/new.m3u8', 'https://example.com/new');
+  resolveOld({ ok: true, text: async () => '#EXTM3U' });
+  await settle();
+  assert.deepEqual(Array.from(await sniffer.listStreams(7, 'https://example.com/new'), s => s.url),
+    ['https://cdn.example.com/new.m3u8']);
+  assert.equal((await sniffer.listStreams(7, 'https://example.com/old')).length, 0);
 });
 
 test('a newly injected content script restores the detected-stream popup on reload', async () => {
