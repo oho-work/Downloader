@@ -84,6 +84,12 @@
     if (msg && msg.type === 'STREAM_DETECTED') show(msg.stream);
   });
 
+  // A verified stream may arrive before this script is ready, or be deduped
+  // across a same-URL reload. Restore the current page's best candidate.
+  chrome.runtime.sendMessage({ type: 'CONTENT_READY' }).then((result) => {
+    if (result?.ok && result.streams?.length) show(result.streams[0]);
+  }).catch(() => {});
+
   // ── 兜底嗅探：PerformanceObserver 捕获页面加载的 m3u8 资源 ──
   if ('PerformanceObserver' in window) {
     try {

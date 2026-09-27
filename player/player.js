@@ -2,8 +2,9 @@
 // 独立播放页：取任务上下文 → hls.js(自定义Loader) 播放 → Seek 预加载 → 缓存进度 → 导出 MP4
 import { loaderFor } from './hls-loader.js';
 import { getMeta, getSegment, SEG_STATE } from '../background/cache-store.js';
-import { sanitizeTitle } from '../utils/id.js';
+import { sanitizeTitle, diagnosticUrl } from '../utils/id.js';
 import { logger } from '../utils/logger.js';
+import { runtimeAvailable, sendRuntimeMessage } from '../utils/runtime-message.js';
 import { FFmpeg } from '../lib/ffmpeg12/esm/index.js';
 
 const $ = (id) => document.getElementById(id);
@@ -22,18 +23,18 @@ let avgFinal = 0;
 if (!videoId) {
   showError('缺少视频任务参数，请从原网页重新打开');
 } else {
-  boot().catch(e => { console.error(e); showError(String(e && e.message || e)); });
+  boot().catch(e => { logger.error('player', 'boot failed', e); showError(String(e && e.message || e)); });
 }
 
 async function boot() {
   // 1) 任务上下文
   logger.info('player', 'boot start videoId=' + videoId);
-  const r = await chrome.runtime.sendMessage({ type: 'GET_TASK_CTX', videoId });
+  const r = await sendRuntimeMessage({ type: 'GET_TASK_CTX', videoId });
   logger.info('player', 'GET_TASK_CTX', r ? (r.ok ? 'ok' : 'err:' + r.error) : 'null');
   if (!r || !r.ok || !r.ctx) { showError('找不到该视频任务，请从原网页重新打开'); return; }
   ctx = r.ctx;
   metaSegs = (ctx.segments || []).slice();
-  logger.info('player', 'ctx m3u8=' + ctx.m3u8Url + ' segments=' + metaSegs.length + ' live=' + ctx.live);
+  logger.info('player', 'ctx segments=' + metaSegs.length + ' live=' + ctx.live + ' domain=' + ctx.domain);
 
   // 2) 界面
   $('title').textContent = ctx.title || '未命名视频';
@@ -45,12 +46,12 @@ async function boot() {
   $('duration').textContent = fmt(dur);
 
   // 3) 设置（全局设置页管理，播放页不展示会话设置）
-  const s = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
+  const s = await sendRuntimeMessage({ type: 'GET_SETTINGS' });
   if (s && s.ok) settings = { ...settings, ...s.settings };
   $('exportBtn').textContent = '导出 MP4';
 
   // 4) 通知 SW 就绪
-  await chrome.runtime.sendMessage({ type: 'PLAYER_READY', videoId }).catch(() => {});
+  await sendRuntimeMessage({ type: 'PLAYER_READY', videoId }).catch(() => {});
 
   // 5) 初始化播放
   initPlayer();
@@ -59,6 +60,7 @@ async function boot() {
 }
 
 function initPlayer() {
+  logger.info('audio-diag', `start video=${videoId} hls=${window.Hls?.version || '-'} mse=${!!(window.Hls && Hls.isSupported())}`);
   if (window.Hls && Hls.isSupported()) {
     hls = new Hls({
       loader: loaderFor(videoId),
@@ -66,13 +68,23 @@ function initPlayer() {
       maxBufferLength: 60, maxMaxBufferLength: 120,
     });
     hls.on(Hls.Events.ERROR, onHlsError);
-    hls.on(Hls.Events.MANIFEST_LOADING, (e, d) => logger.info('hls', 'MANIFEST_LOADING ' + d.url));
-    hls.on(Hls.Events.MANIFEST_PARSED, (e, d) => { logger.info('hls', 'MANIFEST_PARSED levels=' + d.levels); $('status').textContent = '就绪'; });
-    hls.on(Hls.Events.LEVEL_LOADED, (e, d) => logger.info('hls', 'LEVEL_LOADED lvl=' + d.level + ' frags=' + (d.details && d.details.fragments ? d.details.fragments.length : '?')));
-    hls.on(Hls.Events.FRAG_LOADING, (e, d) => logger.info('hls', 'FRAG_LOADING sn=' + (d.frag && d.frag.sn)));
-    hls.on(Hls.Events.FRAG_LOADED, (e, d) => logger.info('hls', 'FRAG_LOADED sn=' + (d.frag && d.frag.sn) + ' bytes=' + (d.payload && d.payload.byteLength)));
-    hls.on(Hls.Events.FRAG_BUFFERED, (e, d) => logger.info('hls', 'FRAG_BUFFERED sn=' + (d.frag && d.frag.sn)));
-    logger.info('player', 'loadSource ' + ctx.m3u8Url);
+    hls.on(Hls.Events.MANIFEST_PARSED, (e, d) => {
+      logger.info('audio-diag', 'manifest levels=' + JSON.stringify((d.levels || []).map(level => ({ audioCodec: level.audioCodec, videoCodec: level.videoCodec, audioGroupId: level.audioGroupId }))));
+      $('status').textContent = '就绪';
+    });
+    hls.on(Hls.Events.BUFFER_CODECS, (e, tracks) => logger.info('audio-diag', 'buffer codecs=' + JSON.stringify(summarizeCodecs(tracks))));
+    hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (e, data) => logger.info('audio-diag', 'audio tracks=' + JSON.stringify((data.audioTracks || []).map(track => ({ id: track.id, codec: track.audioCodec, name: track.name, lang: track.lang, channels: track.channels })))));
+    hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (e, data) => logger.info('audio-diag', `audio track switched id=${data.id} ${mediaSnapshot()}`));
+    hls.on(Hls.Events.LEVEL_SWITCHED, (e, data) => logger.info('audio-diag', `level switched level=${data.level} ${mediaSnapshot()}`));
+    let lastInitCodecs = '';
+    hls.on(Hls.Events.FRAG_PARSING_INIT_SEGMENT, (e, data) => {
+      const codecs = JSON.stringify(summarizeCodecs(data.tracks));
+      if (codecs !== lastInitCodecs) {
+        lastInitCodecs = codecs;
+        logger.info('audio-diag', `init segment frag=${data.frag?.sn ?? '-'} codecs=${codecs} ${mediaSnapshot()}`);
+      }
+    });
+    logger.debug('player', 'loadSource ' + ctx.m3u8Url);
     hls.loadSource(ctx.m3u8Url);
     hls.attachMedia(video);
   } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
@@ -83,11 +95,38 @@ function initPlayer() {
 
   video.addEventListener('playing', () => { $('loading').style.display = 'none'; $('status').textContent = '播放中'; });
   video.addEventListener('waiting', () => $('status').textContent = '缓冲中');
+  for (const event of ['loadedmetadata', 'playing', 'waiting', 'stalled', 'seeking', 'seeked', 'ratechange', 'error']) {
+    video.addEventListener(event, () => logger.info('audio-diag', `media ${event} ${mediaSnapshot()}`));
+  }
+  setInterval(() => {
+    if (!video.paused && !video.ended) logger.info('audio-diag', `playback sample ${mediaSnapshot()}`);
+  }, 30000);
   video.addEventListener('loadeddata', () => {
     $('status').textContent = '已连接'; $('loading').style.display = 'none';
     // 默认有声自动播放；若被浏览器拦截，回退静音自动播放，用户点喇叭即可恢复声音
     video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });
   });
+}
+
+function summarizeCodecs(tracks = {}) {
+  return Object.fromEntries(Object.entries(tracks || {}).map(([kind, track]) => [kind, {
+    codec: track?.codec, levelCodec: track?.levelCodec, container: track?.container,
+    sampleRate: track?.metadata?.sampleRate, channels: track?.metadata?.channelCount,
+  }]));
+}
+
+function mediaSnapshot() {
+  const quality = video.getVideoPlaybackQuality?.();
+  let buffered = '-';
+  try {
+    for (let i = 0; i < video.buffered.length; i++) {
+      if (video.buffered.start(i) <= video.currentTime && video.currentTime <= video.buffered.end(i)) {
+        buffered = `${video.buffered.start(i).toFixed(1)}-${video.buffered.end(i).toFixed(1)}`;
+        break;
+      }
+    }
+  } catch { buffered = '[unavailable]'; }
+  return `time=${video.currentTime.toFixed(1)} rate=${video.playbackRate} muted=${video.muted} volume=${video.volume} ready=${video.readyState} network=${video.networkState} buffered=${buffered} audioTrack=${hls?.audioTrack ?? '-'} level=${hls?.currentLevel ?? '-'} dropped=${quality?.droppedVideoFrames ?? '-'} mediaError=${video.error?.code ?? '-'}`;
 }
 
 // ── Seek 预加载（前3后7，可配置，防抖） ──
@@ -102,19 +141,21 @@ function bindEvents() {
   video.addEventListener('seeking', () => {
     clearTimeout(seekTimer);
     seekTimer = setTimeout(() => {
+      if (!runtimeAvailable()) return;
       if (!metaSegs.length) return;
       const target = idxAtTime(metaSegs, video.currentTime);
       if (target < 0) return;
       const seek = [];
       for (let i = Math.max(0, target - settings.seekBefore); i < target; i++) seek.push(i);
       for (let i = target + 1; i <= Math.min(metaSegs.length - 1, target + settings.seekAfter); i++) seek.push(i);
-      chrome.runtime.sendMessage({ type: 'SCHEDULE_BATCH', videoId, cancel: true, urgent: target, seek }).catch(() => {});
+      sendRuntimeMessage({ type: 'SCHEDULE_BATCH', videoId, cancel: true, urgent: target, seek }).catch(() => {});
     }, 300);
   });
 
   // 正常播放向后预加载
   let lastAhead = 0;
   video.addEventListener('timeupdate', () => {
+    if (!runtimeAvailable()) return;
     const now = Date.now();
     if (now - lastAhead < 3000) return;
     lastAhead = now;
@@ -123,23 +164,23 @@ function bindEvents() {
     if (cur < 0) return;
     const ahead = [];
     for (let i = cur + 1; i <= Math.min(metaSegs.length - 1, cur + settings.playAhead); i++) ahead.push(i);
-    chrome.runtime.sendMessage({ type: 'SCHEDULE_BATCH', videoId, cancel: false, ahead }).catch(() => {});
+    sendRuntimeMessage({ type: 'SCHEDULE_BATCH', videoId, cancel: false, ahead }).catch(() => {});
   });
 
   // 导出 / 清空 / 重试失败
   $('exportBtn').addEventListener('click', exportVideo);
-  $('clearBtn').addEventListener('click', () => { chrome.runtime.sendMessage({ type: 'CLEAR_SESSION', videoId }).catch(() => {}); toast('已清空本次缓存'); setTimeout(() => location.reload(), 600); });
+  $('clearBtn').addEventListener('click', () => { sendRuntimeMessage({ type: 'CLEAR_SESSION', videoId }).catch(() => {}); toast('已清空本次缓存'); setTimeout(() => location.reload(), 600); });
   $('retryFailedBtn').addEventListener('click', async () => {
     allDone = false;
     avgFrozen = false;
     $('exportBtn').disabled = true;
-    const r = await chrome.runtime.sendMessage({ type: 'RETRY_FAILED', videoId }).catch(() => {});
+    const r = await sendRuntimeMessage({ type: 'RETRY_FAILED', videoId }).catch(() => {});
     toast('已重新调度 ' + (r && r.retried ? r.retried : 0) + ' 个失败分片');
     updateCache();
   });
 
   // 关闭清理
-  window.addEventListener('pagehide', () => chrome.runtime.sendMessage({ type: 'CLOSE_PLAYER', videoId }).catch(() => {}));
+  window.addEventListener('pagehide', () => sendRuntimeMessage({ type: 'CLOSE_PLAYER', videoId }).catch(() => {}));
 }
 
 // ── 进度接收 ──
@@ -288,7 +329,7 @@ async function ensureDecKey(m) {
   const keyLine = (m.segments || []).map(s => s && s.key).find(Boolean) || '';
   const { uri, iv } = parseKeyLine(keyLine, m.m3u8Url);
   if (!uri) throw new Error('清单无 #EXT-X-KEY 解密地址');
-  const r = await chrome.runtime.sendMessage({ type: 'GET_KEY', videoId, uri }).catch(() => null);
+  const r = await sendRuntimeMessage({ type: 'GET_KEY', videoId, uri }).catch(() => null);
   if (!r || !r.ok || !r.key) throw new Error('获取解密密钥失败: ' + ((r && r.error) || 'SW 无响应'));
   const keyBytes = new Uint8Array(r.key);
   if (keyBytes.length !== 16) throw new Error('解密密钥长度异常: ' + keyBytes.length);
@@ -372,7 +413,7 @@ async function exportVideo() {
     for (let i = 0; i < exportable.length; i++) {
       const s = exportable[i];
       const g = decCache.has(s.idx) ? { buffer: decCache.get(s.idx) } : await getSegment(videoId, s.idx);
-      if (!g || !g.buffer) { logger.error('player', `export 分片缺失 idx=${s.idx} url=${s.url}`); throw new Error('分片数据缺失 idx=' + s.idx); }
+      if (!g || !g.buffer) { logger.error('player', `export 分片缺失 idx=${s.idx} url=${diagnosticUrl(s.url)}`); throw new Error('分片数据缺失 idx=' + s.idx); }
       totalBytes += g.buffer.byteLength;
       await ffmpeg.writeFile(`s${i}.ts`, new Uint8Array(g.buffer));
       if (i % 50 === 0 || i === exportable.length - 1) logger.info('player', `export 已写入 ${i + 1}/${exportable.length} 累计 ${(totalBytes / 1048576).toFixed(1)}MB`);
@@ -394,7 +435,6 @@ async function exportVideo() {
     // 导出成功不删除缓存：缓存只在本标签页真正关闭时清理（tabs.onRemoved）
     toast(skipTotal ? `已导出（跳过 ${skipTotal} 个失效分片，对应时间点会跳跃）` : '已导出到浏览器下载目录');
   } catch (e) {
-    console.error('export fail', e);
     let fsInfo = '';
     try { const names = await ffmpeg.listDir('/').catch(() => null); fsInfo = ' MEMFS根目录=' + JSON.stringify(names).slice(0, 500); } catch {}
     logger.error('player', 'export 失败: ' + (e && e.message || e) + fsInfo + ' ffLogs=' + JSON.stringify(ffLogs).slice(-1500));
@@ -415,7 +455,7 @@ function toast(t) {
   clearTimeout(el.__t); el.__t = setTimeout(() => el.classList.remove('show'), 2400);
 }
 function onHlsError(evt, data) {
-  logger.error('hls', 'ERROR type=' + (data && data.type) + ' details=' + (data && data.details) + ' fatal=' + (data && data.fatal) + ' frag=' + (data && data.frag && data.frag.sn) + ' err=' + (data && data.error));
+  logger.error('audio-diag', 'hls error type=' + (data && data.type) + ' details=' + (data && data.details) + ' fatal=' + (data && data.fatal) + ' frag=' + (data && data.frag && data.frag.sn) + ' error=' + (data && data.error?.message) + ' ' + mediaSnapshot());
   if (data && data.fatal) {
     if (data.type === Hls.ErrorTypes.NETWORK_ERROR) { hls && hls.startLoad(); }
     else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) { hls && hls.recoverMediaError(); }

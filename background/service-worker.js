@@ -5,7 +5,7 @@ import { getSession, clearSession, purgeExpired, bindSession } from './session.j
 import { parsePlaylist } from './m3u8-parser.js';
 import { scheduler, dedupe } from './scheduler.js';
 import { saveMeta, getMeta, delMeta, delAllSegments, listAllMeta, saveSettings, getSettings, SEG_STATE } from './cache-store.js';
-import { videoIdFor, sanitizeTitle, domainOf } from '../utils/id.js';
+import { videoIdFor, sanitizeTitle, domainOf, diagnosticUrl } from '../utils/id.js';
 import { logger } from '../utils/logger.js';
 
 const DEFAULTS = {
@@ -80,6 +80,18 @@ async function handle(msg, sender) {
       return { ok: true, streams: await listStreams(tabId, msg.pageUrl || '') };
     }
 
+    case 'CONTENT_READY': {
+      const tabId = sender.tab && sender.tab.id;
+      if (tabId == null) return { ok: true, streams: [] };
+      return { ok: true, streams: await listStreams(tabId, sender.url || sender.tab.url || '') };
+    }
+
+    case 'CLEAR_SNIFF': {
+      if (!Number.isInteger(msg.tabId) || msg.tabId < 0) return { ok: false, error: 'invalid tab' };
+      await clearTab(msg.tabId, 'popup clear');
+      return { ok: true };
+    }
+
     case 'SEND_STREAMS': {
       ingestContentStream(sender.tab && sender.tab.id, msg.url, sender.tab && sender.tab.url);
       return { ok: true };
@@ -118,7 +130,7 @@ async function handle(msg, sender) {
       taskCtx.set(videoId, { m3u8Url: stream.url, headers, live: meta.live, domain: meta.domain });
       // 注册调度任务（tabId 指向新播放页，用于进度广播）
       scheduler.register(videoId, { meta, headers, tabId: newTab.id, settings });
-      logger.info('sw', `open ${videoId} <- ${stream.url}`);
+      logger.info('sw', `open ${videoId} <- ${diagnosticUrl(stream.url)}`);
       return { ok: true, videoId, url };
     }
 
@@ -186,7 +198,7 @@ async function handle(msg, sender) {
       } else {
         (msg.ahead || []).forEach(i => scheduler.enqueue(msg.videoId, i, PRIO_AHEAD()));
       }
-      logger.info('sw', `batch ${msg.videoId} urgent=${msg.urgent != null ? msg.urgent : '-'} seek=${(msg.seek || []).length} ahead=${(msg.ahead || []).length}`);
+      logger.debug('sw', `batch ${msg.videoId} urgent=${msg.urgent != null ? msg.urgent : '-'} seek=${(msg.seek || []).length} ahead=${(msg.ahead || []).length}`);
       return { ok: true };
     }
 
@@ -212,7 +224,7 @@ async function handle(msg, sender) {
             changed = true;
           } else { dup++; }
         }
-        logger.info('sw', `add segments ${msg.videoId} 新增=${msg.segments ? msg.segments.length - dup : 0} 重复跳过=${dup} 当前总数=${meta.segments.length}`);
+        logger.debug('sw', `add segments ${msg.videoId} 新增=${msg.segments ? msg.segments.length - dup : 0} 重复跳过=${dup} 当前总数=${meta.segments.length}`);
         if (changed) { await saveMeta(meta); scheduler.register(msg.videoId, { meta, headers: taskCtx.get(msg.videoId)?.headers, tabId: sender.tab && sender.tab.id, settings: await loadSettings() }); }
       }
       return { ok: true };
@@ -263,7 +275,13 @@ async function handle(msg, sender) {
 
     case 'CLEAR_CACHE': {
       const metas = await listAllMeta();
-      for (const m of metas) { scheduler.cancelAll(m.videoId); await delAllSegments(m.videoId); await delMeta(m.videoId); scheduler.unregister(m.videoId); }
+      for (const m of metas) await cleanupVideo(m.videoId);
+      return { ok: true };
+    }
+
+    case 'DELETE_CACHE': {
+      if (!msg.videoId) return { ok: false, error: 'missing videoId' };
+      await cleanupVideo(msg.videoId);
       return { ok: true };
     }
 
@@ -339,30 +357,33 @@ async function recoverStuckSegments() {
   }
 }
 chrome.tabs.onRemoved.addListener((tabId) => {
-  clearTab(tabId); clearSession(tabId);
+  clearTab(tabId, 'tab removed'); clearSession(tabId);
   const videoId = tabVideo.get(tabId);
   if (videoId) {
     tabVideo.delete(tabId);
     // 只有最后一个播放器标签页关闭后才清理视频缓存。否则关闭其中一个
     // 标签会把另一个标签正在播放/导出的数据一起删掉。
     if (hasOtherPlayer(videoId)) return;
-    cleanupVideo(videoId);
+    cleanupVideo(videoId).catch(e => logger.warn('sw', 'cleanup video failed', e && e.message));
   }
 });
 
 async function cleanupVideo(videoId) {
   scheduler.cancelAll(videoId);
-  try { await delAllSegments(videoId); } catch {}
-  try { await delMeta(videoId); } catch {}
   scheduler.unregister(videoId);
   taskCtx.delete(videoId);
+  await delAllSegments(videoId);
+  await delMeta(videoId);
 }
 
 // 页面导航会触发 onRemoved 之前的 pagehide，不能依赖标签页关闭事件才清理。
 // 同时清掉该标签页的嗅探候选和会话请求头，避免新网址继承旧页面状态。
-chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo && (changeInfo.url || changeInfo.status === 'loading')) {
+    logger.info('sniff-diag', `tab update tab=${tabId} status=${changeInfo.status || '-'} changedUrl=${diagnosticUrl(changeInfo.url)} tabUrl=${diagnosticUrl(tab && tab.url)} clear=${!!changeInfo.url}`);
+  }
   if (!changeInfo || !changeInfo.url) return;
-  clearTab(tabId);
+  clearTab(tabId, 'tab URL changed');
   clearSession(tabId);
   const videoId = tabVideo.get(tabId);
   if (!videoId) return;

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "HLS Cache Player",
-  "version": "1.6.10",
+  "version": "1.6.11",
   "description": "嗅探、播放、缓存、导出 HLS 流媒体，零外部依赖。自动嗅探 m3u8、独立标签页边播边缓存、可导出 MP4。",
   "minimum_chrome_version": "110",
   "icons": {

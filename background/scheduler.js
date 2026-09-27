@@ -2,6 +2,7 @@
 // 分片调度引擎：并发池 + 优先级抢占 + 单分片超时 + 指数退避重试 + 签名过期刷新
 import { putSegment, updateSegState, getMeta, saveMeta, SEG_STATE } from './cache-store.js';
 import { parsePlaylist } from './m3u8-parser.js';
+import { diagnosticUrl } from '../utils/id.js';
 import { logger } from '../utils/logger.js';
 
 export const PRIO = { URGENT: 3, SEEK: 2, AHEAD: 1, FULL: 0 };
@@ -248,7 +249,7 @@ class Scheduler {
             try {
               const r2 = await fetch(seg.url, { headers: { ...headers, Referer: task.meta.m3u8Url }, signal, credentials: 'include', cache: 'no-store' });
               if (r2.ok) return await r2.arrayBuffer();
-              logger.warn('scheduler', `seg ${seg.idx} 403 补Referer=${task.meta.m3u8Url} 仍${r2.status}`);
+              logger.warn('scheduler', `seg ${seg.idx} 403 补Referer=${diagnosticUrl(task.meta.m3u8Url)} 仍${r2.status}`);
             } catch (e) { /* 忽略，走刷新逻辑 */ }
           }
           // 签名过期：刷新后换新 URL 立即重试（无退避）；若刷新未生效（url 未变）则按失败处理，避免无限循环卡进度
@@ -259,12 +260,12 @@ class Scheduler {
             logger.info('scheduler', `seg ${seg.idx} ${res.status} 签名刷新 url已更新 刷新#${++refreshRetries}`);
             seg.url = s2.url;
             if (refreshRetries > maxRetry) {
-              logger.warn('scheduler', `seg ${seg.idx} 连续 403 刷新 ${refreshRetries} 次仍失败，判死 url=${seg.url}`);
+              logger.warn('scheduler', `seg ${seg.idx} 连续 403 刷新 ${refreshRetries} 次仍失败，判死 url=${diagnosticUrl(seg.url)}`);
               throw new Error(`HTTP 403 持续（刷新${refreshRetries}次仍未解决）`);
             }
           } else {
             // url 未变仍 403：不是签名过期能解决的（URL 拼错/防盗链/CDN 失效），快速失败并输出完整诊断
-            logger.warn('scheduler', `seg ${seg.idx} ${res.status} url=${seg.url} 刷新后url未变 Referer捕获=${headers.Referer ? '有' : '无'} Origin=${headers.Origin ? '有' : '无'} attempt=${attempt}`);
+            logger.warn('scheduler', `seg ${seg.idx} ${res.status} url=${diagnosticUrl(seg.url)} 刷新后url未变 Referer捕获=${headers.Referer ? '有' : '无'} Origin=${headers.Origin ? '有' : '无'} attempt=${attempt}`);
             throw new Error(`签名过期 HTTP ${res.status}（刷新后URL未变，无法续期）`);
           }
         } else if (!res.ok) {
@@ -480,15 +481,14 @@ class Scheduler {
       active, bytes: task.cachedBytes || 0, speed,
     };
     if (task.tabId != null) chrome.runtime.sendMessage(msg).catch(() => {});
-    // 辅助诊断日志：每次进度广播输出去重后的真实状态
-    logger.info('scheduler', `prog ${videoId} done=${done}/${total} failed=${failed} active=${active} queue=${this.queue.length} speed=${Math.round(speed / 1024)}KB/s cached=${(task.cachedBytes || 0) / 1048576 >= 1 ? ((task.cachedBytes || 0) / 1048576).toFixed(1) + 'MB' : Math.round((task.cachedBytes || 0) / 1024) + 'KB'}`);
+    logger.debug('scheduler', `prog ${videoId} done=${done}/${total} failed=${failed} active=${active} queue=${this.queue.length} speed=${Math.round(speed / 1024)}KB/s`);
     // 接近完成但没到 100% 时，输出剩余未完成分片（idx/url/state），定位"卡在 98%/下载中N"的分片是谁
     if (total && done < total && total - done <= 3) {
       const _now = Date.now();
       if (!task._nearEndT || _now - task._nearEndT > 10000) {
         task._nearEndT = _now;
-        const rem = task.meta.segments.filter(s => s && s.state !== SEG_STATE.DONE).map(s => `#${s.idx} st=${s.state} ${s.url}`);
-        if (rem.length) logger.warn('scheduler', `nearEnd ${videoId} 剩 ${total - done} 未完成: ${rem.join(' | ')}`);
+        const rem = task.meta.segments.filter(s => s && s.state !== SEG_STATE.DONE).map(s => `#${s.idx} st=${s.state}`);
+        if (rem.length) logger.debug('scheduler', `nearEnd ${videoId} 剩 ${total - done} 未完成: ${rem.join(' | ')}`);
       }
     }
     // ALL_DONE 以去重后全部 state DONE 为准（而非累加器 done>=total）：重复 url 会让累加器虚高，
@@ -523,7 +523,7 @@ class Scheduler {
         }
       }
       if (this.running.size || this.queue.length) {
-        logger.info('scheduler', `stats running=${this.running.size} queue=${this.queue.length}`);
+        logger.debug('scheduler', `stats running=${this.running.size} queue=${this.queue.length}`);
       }
     }, 5000);
   }

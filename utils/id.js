@@ -16,6 +16,14 @@ export function domainOf(url) {
   try { return new URL(url).hostname; } catch { return ''; }
 }
 
+export function diagnosticUrl(url) {
+  if (!url) return '-';
+  try {
+    const u = new URL(url);
+    return u.origin + u.pathname + (u.search ? '?[query]' : '');
+  } catch { return '[invalid URL]'; }
+}
+
 // 生成稳定的视频任务 ID：同一 m3u8 地址复用同一 ID，支持重开续缓存
 export function videoIdFor(m3u8Url) {
   let h = 5381;

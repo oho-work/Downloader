@@ -1,11 +1,12 @@
 // popup/popup.js
-// 插件弹窗：嗅探视图（候选流） + 缓存视图（已缓存视频，可重新打开 / 清空）
+// 插件弹窗：嗅探视图（候选流） + 缓存视图（已缓存视频，可重新打开 / 删除）
 (() => {
   const listEl = document.getElementById('list');
   const subtitle = document.getElementById('subtitle');
   const mainNav = document.getElementById('mainNav');
   const mainFooter = document.getElementById('mainFooter');
   const settingsView = document.getElementById('settingsView');
+  const clearBtn = document.getElementById('clearBtn');
   const DEFAULTS = { sniffEnabled: true, maxConcurrent: 16, timeoutMs: 30000, maxRetry: 5 };
   let activeView = 'sniff';
 
@@ -23,6 +24,7 @@
 
   async function render() {
     listEl.innerHTML = '<div class="loading-msg">加载中…</div>';
+    clearBtn.title = activeView === 'sniff' ? '清空当前页嗅探结果' : '清空所有缓存';
     if (activeView === 'sniff') await renderSniff();
     else await renderCache();
   }
@@ -77,10 +79,23 @@
       const meta = [`${v.done}/${v.segmentCount} 分片 · ${pct}%`, v.domain || '—'];
       if (v.totalDuration) meta.unshift(`时长 ${fmtDuration(v.totalDuration)}`);
       item.innerHTML = `
-        <div class="row"><span class="url" title="${escapeHtml(v.title)}">${escapeHtml(v.title || '未命名')}</span></div>
+        <div class="row"><span class="url" title="${escapeHtml(v.title)}">${escapeHtml(v.title || '未命名')}</span><button class="delete-btn" type="button" title="删除此缓存" aria-label="删除此缓存">删除</button></div>
         <div class="meta">${meta.join('<span>·</span>')}</div>
         <div class="bar"><div class="fill" style="width:${pct}%"></div></div>
         <div class="play">重新打开并继续缓存 →</div>`;
+      item.querySelector('.delete-btn').addEventListener('click', async (event) => {
+        event.stopPropagation();
+        const button = event.currentTarget;
+        button.disabled = true;
+        try {
+          const result = await chrome.runtime.sendMessage({ type: 'DELETE_CACHE', videoId: v.videoId });
+          if (!result?.ok) throw new Error(result?.error || '删除失败');
+          await renderCache();
+        } catch (error) {
+          button.disabled = false;
+          alert('删除缓存失败：' + (error?.message || error));
+        }
+      });
       item.addEventListener('click', async () => {
         await chrome.runtime.sendMessage({
           type: 'OPEN_PLAYER', stream: { url: v.m3u8Url, domain: v.domain, live: v.live }, title: v.title || '',
@@ -96,20 +111,33 @@
   }
 
   // ── 事件 ──
-  document.querySelectorAll('.tab').forEach(tab => {
-    tab.addEventListener('click', async () => {
-      if (tab.dataset.clear) {
-        if (!confirm('确定清空所有缓存分片？')) return;
-        await chrome.runtime.sendMessage({ type: 'CLEAR_CACHE' });
-        activeView = 'cache';
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        render(); return;
-      }
-      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab[data-view]').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab[data-view]').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
       activeView = tab.dataset.view;
       render();
     });
+  });
+
+  clearBtn.addEventListener('click', async () => {
+    const sniff = activeView === 'sniff';
+    clearBtn.disabled = true;
+    try {
+      let message = { type: 'CLEAR_CACHE' };
+      if (sniff) {
+        const tab = await getActiveTab();
+        if (!tab) throw new Error('未获取到当前标签页');
+        message = { type: 'CLEAR_SNIFF', tabId: tab.id };
+      }
+      const result = await chrome.runtime.sendMessage(message);
+      if (!result?.ok) throw new Error(result?.error || '清空失败');
+      await render();
+    } catch (error) {
+      alert('清空失败：' + (error?.message || error));
+    } finally {
+      clearBtn.disabled = false;
+    }
   });
 
   function setSettingsVisible(visible) {
