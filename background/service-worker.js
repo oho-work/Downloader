@@ -19,6 +19,13 @@ const taskCtx = new Map();
 // 播放页 tab -> videoId，用于关标签兜底清理
 const tabVideo = new Map();
 
+function hasOtherPlayer(videoId, exceptTabId = null) {
+  for (const [tabId, id] of tabVideo) {
+    if (id === videoId && tabId !== exceptTabId) return true;
+  }
+  return false;
+}
+
 async function loadSettings() {
   const stored = await getSettings();
   const s = { ...DEFAULTS, ...stored };
@@ -200,10 +207,16 @@ async function handle(msg, sender) {
     // 播放页卸载/刷新：只释放内存调度，保留 IDB 缓存。
     // 真正删除缓存仅发生在 tabs.onRemoved（用户关闭标签页）。
     case 'CLOSE_PLAYER': {
-      scheduler.cancelAll(msg.videoId);
-      scheduler.unregister(msg.videoId);
-      taskCtx.delete(msg.videoId);
-      if (sender.tab) tabVideo.delete(sender.tab.id);
+      const tabId = sender.tab && sender.tab.id;
+      // 同一清单可能被多个播放器标签页打开。一个页面卸载时只能释放
+      // 自己的调度引用，不能中断另一个仍在使用同一缓存的播放器。
+      if (!hasOtherPlayer(msg.videoId, tabId)) {
+        scheduler.cancelAll(msg.videoId);
+        scheduler.unregister(msg.videoId);
+        taskCtx.delete(msg.videoId);
+      }
+      // Keep the tab -> video mapping until tabs.onRemoved. pagehide also
+      // fires on reload, and deleting it here prevents close-time cleanup.
       return { ok: true };
     }
 
@@ -283,7 +296,14 @@ async function recoverStuckSegments() {
       const key = `${m.videoId}:${s.idx}`;
       const rm = scheduler.running.get(key);
       if (rm && now - (rm.startTs || 0) <= 90000) return; // 在跑且未超时：正常下载中
-      if (rm) { rm.ctrl.abort(); scheduler.running.delete(key); } // 在跑但超时：中断旧下载（run() 会回 PENDING，与我们一致）
+      // A freshly persisted DOWNLOADING state can briefly outlive the in-memory
+      // running map during task registration or SW wake-up. Give it the same
+      // grace period as an active request instead of resetting it immediately.
+      if (!rm && s.startedAt && now - s.startedAt <= 90000) return;
+      // Leave the running entry until run() handles the abort. Its giveUp flag
+      // is how the scheduler distinguishes a watchdog timeout (FAILED) from a
+      // user seek/cancel (PENDING); deleting it here would lose that signal.
+      if (rm) rm.ctrl.abort();
       s.state = SEG_STATE.PENDING;
       resetIdx.push(s.idx);
     });
@@ -302,10 +322,19 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   clearTab(tabId); clearSession(tabId);
   const videoId = tabVideo.get(tabId);
   if (videoId) {
-    scheduler.cancelAll(videoId);
-    delAllSegments(videoId).then(() => delMeta(videoId)).then(() => scheduler.unregister(videoId)).catch(() => {});
-    taskCtx.delete(videoId);
     tabVideo.delete(tabId);
+    // 只有最后一个播放器标签页关闭后才清理视频缓存。否则关闭其中一个
+    // 标签会把另一个标签正在播放/导出的数据一起删掉。
+    if (hasOtherPlayer(videoId)) return;
+    scheduler.cancelAll(videoId);
+    loadSettings().then(settings => {
+      const cleanup = settings.cleanAfter !== false
+        ? delAllSegments(videoId).then(() => delMeta(videoId))
+        : Promise.resolve();
+      return cleanup.then(() => scheduler.unregister(videoId));
+    }).catch(() => {}).finally(() => {
+      taskCtx.delete(videoId);
+    });
   }
 });
 

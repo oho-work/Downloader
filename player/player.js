@@ -13,7 +13,7 @@ const videoId = q.get('v');
 
 let hls = null, ctx = null;
 let metaSegs = [];          // 本地分片索引（初始快照 + 动态追加）
-let settings = { seekBefore: 3, seekAfter: 7, playAhead: 10, maxConcurrent: 16, timeoutMs: 30000, maxRetry: 5, folderFromTitle: true, cleanAfter: true };
+let settings = { seekBefore: 3, seekAfter: 7, playAhead: 10, maxConcurrent: 16, timeoutMs: 30000, maxRetry: 5, folderFromTitle: true, cleanAfter: true, format: 'mp4' };
 let allDone = false;
 let avgStart = 0; // 平均速度计时起点（首次出现已缓存字节时）
 
@@ -45,6 +45,8 @@ async function boot() {
   // 3) 设置（全局设置页管理，播放页不展示会话设置）
   const s = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
   if (s && s.ok) settings = { ...settings, ...s.settings };
+  const exportFormat = ['mp4', 'mkv', 'mov'].includes(String(settings.format).toLowerCase()) ? String(settings.format).toLowerCase() : 'mp4';
+  $('exportBtn').textContent = '导出 ' + exportFormat.toUpperCase();
 
   // 4) 通知 SW 就绪
   await chrome.runtime.sendMessage({ type: 'PLAYER_READY', videoId }).catch(() => {});
@@ -371,11 +373,15 @@ async function exportVideo() {
     list += '#EXT-X-ENDLIST\n';
     await ffmpeg.writeFile('local.m3u8', list);
     logger.info('player', `export m3u8 写入 ${exportable.length} 条`);
-    await ffmpeg.exec(['-i', 'local.m3u8', '-c', 'copy', '-movflags', '+faststart', 'out.mp4']);
-    const data = await ffmpeg.readFile('out.mp4');
-    logger.info('player', `export out.mp4 ${data.length} bytes`);
-    const blobUrl = URL.createObjectURL(new Blob([data], { type: 'video/mp4' }));
-    const name = settings.folderFromTitle ? `${sanitizeTitle(ctx.title || 'video')}/video.mp4` : 'video.mp4';
+    const format = ['mp4', 'mkv', 'mov'].includes(String(settings.format).toLowerCase()) ? String(settings.format).toLowerCase() : 'mp4';
+    const output = `out.${format}`;
+    const muxArgs = format === 'mkv' ? [] : ['-movflags', '+faststart'];
+    await ffmpeg.exec(['-i', 'local.m3u8', '-c', 'copy', ...muxArgs, output]);
+    const data = await ffmpeg.readFile(output);
+    logger.info('player', `export ${output} ${data.length} bytes`);
+    const mime = format === 'mkv' ? 'video/x-matroska' : format === 'mov' ? 'video/quicktime' : 'video/mp4';
+    const blobUrl = URL.createObjectURL(new Blob([data], { type: mime }));
+    const name = settings.folderFromTitle ? `${sanitizeTitle(ctx.title || 'video')}/video.${format}` : `video.${format}`;
     await chrome.downloads.download({ url: blobUrl, filename: name, saveAs: false });
     // 导出成功不删除缓存：缓存只在本标签页真正关闭时清理（tabs.onRemoved）
     toast(skipTotal ? `已导出（跳过 ${skipTotal} 个失效分片，对应时间点会跳跃）` : '已导出到浏览器下载目录');

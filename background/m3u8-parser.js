@@ -34,7 +34,14 @@ export function parsePlaylist(text, baseUrl) {
       out.variants.push({ url: absolutize(line, baseUrl), raw: line });
       continue;
     }
-    if (line.startsWith('#EXT-X-KEY')) { out.encrypted = true; curKey = line; continue; }
+    if (line.startsWith('#EXT-X-KEY')) {
+      // METHOD=NONE clears encryption for following segments. Treating this
+      // marker as a key would make export attempt to fetch a non-existent key.
+      const method = (line.match(/METHOD=([^,]+)/i) || [])[1];
+      if (String(method || '').toUpperCase() === 'NONE') curKey = null;
+      else { out.encrypted = true; curKey = line; }
+      continue;
+    }
     if (line.startsWith('#EXTINF')) { cur.dur = parseFloat(line.split(':')[1]) || 0; continue; }
     if (line.startsWith('#EXT-X-TARGETDURATION')) { out.targetDuration = parseInt(line.split(':')[1], 10) || 0; continue; }
     if (line.startsWith('#EXT-X-DISCONTINUITY')) { discontinuity = true; continue; }

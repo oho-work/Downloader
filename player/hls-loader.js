@@ -10,6 +10,7 @@ export class HlsCacheLoader {
   constructor(videoId) {
     this.videoId = videoId;
     this.destroyed = false;
+    this.aborted = false;
     // hls.js 在调用 load() 之前会执行 frag.stats = loader.stats（读取 loader 实例的 stats 属性），
     // 因此 stats 必须在构造时初始化且保持非 null，否则 frag.stats 为 null 触发 _abandonRulesCheck 崩溃。
     this.stats = this._newStats();
@@ -39,11 +40,35 @@ export class HlsCacheLoader {
 
   load(context, config, callbacks) {
     this._resetStats(); // 复用同一 stats 对象（hls.js 已把该引用绑定为 frag.stats），仅重置字段
+    this.aborted = false;
     if (this.destroyed) { callbacks.onError({ code: 2, text: 'destroyed' }, this.stats, context); return; }
     if (context.type === 'manifest' || context.type === 'levelmanifest') {
       this._loadManifest(context, callbacks);
+    } else if (context.type === 'key') {
+      this._loadKey(context, callbacks);
     } else {
       this._loadSegment(context, callbacks);
+    }
+  }
+
+  async _loadKey(context, callbacks) {
+    // hls.js requests AES-128 keys with a separate `key` context. A key is
+    // not a media segment and must never be added to the segment index.
+    try {
+      const resp = await chrome.runtime.sendMessage({
+        type: 'GET_KEY', videoId: this.videoId, uri: context.url,
+      });
+      if (!resp || !resp.ok || !Array.isArray(resp.key)) {
+        callbacks.onError({ code: 1, text: 'key: ' + (resp && resp.error || 'failed') }, this.stats, context);
+        return;
+      }
+      const data = new Uint8Array(resp.key).buffer;
+      this.stats.loaded = this.stats.total = data.byteLength;
+      this.stats.loading.end = performance.now();
+      this.stats.chunkCount = 1;
+      callbacks.onSuccess({ data }, this.stats, context, undefined);
+    } catch (e) {
+      callbacks.onError({ code: 1, text: 'key: ' + String(e && e.message || e) }, this.stats, context);
     }
   }
 
@@ -83,7 +108,7 @@ export class HlsCacheLoader {
     const deadline = Date.now() + 60000;
     let waited = 0;
     while (Date.now() < deadline) {
-      if (this.destroyed) { callbacks.onError({ code: 2, text: 'aborted' }); return; }
+      if (this.destroyed || this.aborted) { callbacks.onError({ code: 2, text: 'aborted' }, this.stats, context); return; }
       const blob = await getSegment(this.videoId, seg.idx);
       if (blob && blob.buffer) {
         logger.info('loader', 'seg cache hit idx=' + seg.idx + ' size=' + blob.buffer.byteLength + ' waitedMs=' + waited);
@@ -102,7 +127,7 @@ export class HlsCacheLoader {
     callbacks.onError({ code: 3, text: 'segment timeout' }, this.stats, context);
   }
 
-  abort() { this.destroyed = true; }
+  abort() { this.aborted = true; }
   destroy() { this.destroyed = true; }
 }
 

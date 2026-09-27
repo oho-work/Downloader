@@ -30,6 +30,35 @@ function cleanHeaders(raw) {
   return out;
 }
 
+function stateRank(state) {
+  // DONE is terminal and must win over a stale snapshot. FAILED is only
+  // preferred over PENDING; a retry can legitimately move it back to PENDING.
+  if (state === SEG_STATE.DONE) return 4;
+  if (state === SEG_STATE.DOWNLOADING) return 3;
+  if (state === SEG_STATE.FAILED) return 2;
+  return 1;
+}
+
+function mergeMeta(oldMeta, nextMeta) {
+  if (!oldMeta) return nextMeta || { segments: [] };
+  if (!nextMeta) return oldMeta;
+  const byIdx = new Map((oldMeta.segments || []).map(s => [s.idx, s]));
+  const byUrl = new Map((oldMeta.segments || []).filter(s => s.url).map(s => [s.url, s]));
+  const segments = (nextMeta.segments || []).map(next => {
+    const old = byIdx.get(next.idx) || (next.url && byUrl.get(next.url));
+    if (!old) return next;
+    const chosen = stateRank(old.state) >= stateRank(next.state) ? old : next;
+    return { ...next, ...chosen, idx: next.idx, url: next.url || old.url };
+  });
+  // Keep dynamically discovered segments that are not in a refreshed snapshot.
+  const seen = new Set(segments.map(s => s.url || `#${s.idx}`));
+  for (const old of oldMeta.segments || []) {
+    const key = old.url || `#${old.idx}`;
+    if (!seen.has(key)) segments.push(old);
+  }
+  return { ...oldMeta, ...nextMeta, segments };
+}
+
 class Scheduler {
   constructor() {
     this.registry = new Map();   // videoId -> task {meta, headers, tabId, onProgress, done, failed, lastBroadcast}
@@ -42,11 +71,42 @@ class Scheduler {
 
   register(videoId, task) {
     const old = this.registry.get(videoId);
-    task.done = old ? old.done : 0;
-    task.failed = old ? old.failed : 0;
-    task.lastBroadcast = old ? old.lastBroadcast : 0;
-    task.notifiedAll = old ? old.notifiedAll : false;
+    if (old) {
+      // Keep the same task object while downloads are running. Replacing it
+      // loses counters/partials while run() still holds the old reference,
+      // which is the source of the stalled 649/681 -> ALL_DONE jump.
+      old.meta = mergeMeta(old.meta, task.meta);
+      if (task.headers !== undefined) old.headers = task.headers;
+      if (task.tabId != null) old.tabId = task.tabId;
+      old.settings = { ...old.settings, ...(task.settings || {}) };
+      old.doneUrls = new Set();
+      old.done = 0;
+      old.failed = 0;
+      const unique = dedupe(old.meta.segments || []);
+      for (const s of unique) {
+        if (s.state === SEG_STATE.DONE) { old.done++; if (s.url) old.doneUrls.add(s.url); }
+        else if (s.state === SEG_STATE.FAILED) old.failed++;
+      }
+      // A task may have previously emitted ALL_DONE and then receive newly
+      // discovered segments or be cleared for another run. Allow a new
+      // completion notification once work is pending again.
+      if (!unique.length || unique.some(s => s.state !== SEG_STATE.DONE)) old.notifiedAll = false;
+      this.registry.set(videoId, old);
+      return old;
+    }
+    task.meta = task.meta || { segments: [] };
+    task.doneUrls = new Set();
+    task.done = 0;
+    task.failed = 0;
+    for (const s of dedupe(task.meta.segments || [])) {
+      if (s.state === SEG_STATE.DONE) { task.done++; if (s.url) task.doneUrls.add(s.url); }
+      else if (s.state === SEG_STATE.FAILED) task.failed++;
+    }
+    task.lastBroadcast = 0;
+    task.notifiedAll = false;
+    task.cachedBytes = task.cachedBytes || 0;
     this.registry.set(videoId, task);
+    return task;
   }
   unregister(videoId) { this.registry.delete(videoId); }
   getTask(videoId) { return this.registry.get(videoId); }
@@ -123,6 +183,9 @@ class Scheduler {
     seg.state = SEG_STATE.DOWNLOADING; // 同步内存，供 enqueue 去重判断
     try {
       const buffer = await this.fetchWithRetry(videoId, seg, ctrl);
+      // A tab can close while fetch is resolving. Do not write a late response
+      // back into a task that has already been unregistered/cancelled.
+      if (ctrl.signal.aborted || this.registry.get(videoId) !== task) throw new Error('preempted');
       await putSegment(videoId, segIdx, buffer);
       await updateSegState(videoId, segIdx, SEG_STATE.DONE, { size: buffer.byteLength });
       seg.state = SEG_STATE.DONE; seg.size = buffer.byteLength; // 同步内存：否则内存恒 PENDING，已缓存分片被反复重下
@@ -159,6 +222,9 @@ class Scheduler {
     } finally {
       this.running.delete(key);
       this.pump();
+      // The completion path runs before finally removes the last running
+      // entry. Re-broadcast after removal so ALL_DONE sees active=0.
+      this.broadcast(videoId, true);
     }
   }
 
@@ -274,10 +340,26 @@ class Scheduler {
       const p = parsePlaylist(text, task.meta.m3u8Url);
       const meta = await getMeta(videoId);
       if (meta && p.segments.length) {
-        p.segments.forEach((ns, i) => {
-          const old = meta.segments[i];
-          if (old) { old.url = ns.url; if (ns.key) old.key = ns.key; }
-        });
+        // A refreshed VOD playlist normally keeps the same segment indexes,
+        // but signed URLs can change and live/dynamic playlists may append or
+        // slide. Update existing indexes in place so cached segment records
+        // keep their state, append genuinely new entries, and always replace
+        // the key (including METHOD=NONE) instead of leaving a stale key.
+        const byIdx = new Map((meta.segments || []).map(s => [s.idx, s]));
+        for (const ns of p.segments) {
+          const old = byIdx.get(ns.idx);
+          if (old) {
+            old.url = ns.url;
+            old.duration = ns.duration;
+            old.start = ns.start;
+            old.key = ns.key || null;
+          } else {
+            meta.segments.push({
+              idx: ns.idx, url: ns.url, duration: ns.duration, start: ns.start,
+              state: SEG_STATE.PENDING, size: 0, key: ns.key || null,
+            });
+          }
+        }
         await saveMeta(meta);
         task.meta = meta;
         logger.info('scheduler', `m3u8 refreshed ${videoId} segs=${p.segments.length}`);
@@ -324,6 +406,7 @@ class Scheduler {
     let n = 0;
     task.meta.segments.forEach(s => { if (s.state === SEG_STATE.FAILED) { s.state = SEG_STATE.PENDING; n++; } });
     if (!n) return;
+    task.notifiedAll = false;
     saveMeta(task.meta).then(() => this.enqueueFull(videoId));
     return n;
   }
@@ -361,18 +444,22 @@ class Scheduler {
     logger.info('scheduler', `interrupt ${videoId} 中断 ${stopped.length} 个下载, urgent=${urgentIdx}, seek=${seekIdxList.length}, queue=${this.queue.length}`);
   }
 
-  broadcast(videoId) {
+  broadcast(videoId, force = false) {
     const task = this.registry.get(videoId);
     if (!task) return;
     const now = Date.now();
-    if (now - task.lastBroadcast < 250) return;
+    if (!force && now - task.lastBroadcast < 250) return;
     task.lastBroadcast = now;
     // total 用去重后的唯一分片数；done/failed 用真实累加器（转存成功/失败数量）。
     // 注意：task.meta 内存中的 state 由 updateSegState 只写 IndexedDB、不回流内存而保持陈旧，
     // 不能按 state 过滤统计（会把转存成功误判），必须用 run() 里 putSegment 成功后才 ++ 的累加器。
     const total = dedupe(task.meta.segments).length;
-    const done = task.done;
-    const failed = task.failed;
+    // Derive counters from the same unique state set used by completion and
+    // UI rendering. Incremental counters can diverge after task recovery.
+    const done = dedupe(task.meta.segments).filter(s => s.state === SEG_STATE.DONE).length;
+    const failed = dedupe(task.meta.segments).filter(s => s.state === SEG_STATE.FAILED).length;
+    task.done = done;
+    task.failed = failed;
     // 实际并发执行中的请求数（running 池大小，≤ maxConcurrent）
     let active = 0;
     for (const key of this.running.keys()) if (key.startsWith(videoId + ':')) active++;
@@ -407,7 +494,9 @@ class Scheduler {
     // ALL_DONE 以去重后全部 state DONE 为准（而非累加器 done>=total）：重复 url 会让累加器虚高，
     // 提前触发会把仍在下载的真实分片 abort，导致导出缺数据
     const uniqAll = dedupe(task.meta.segments);
-    const allRealDone = uniqAll.length > 0 && uniqAll.every(s => s.state === SEG_STATE.DONE);
+    const queueForVideo = this.queue.some(x => x.videoId === videoId);
+    const allRealDone = uniqAll.length > 0 && uniqAll.every(s => s.state === SEG_STATE.DONE)
+      && active === 0 && !queueForVideo;
     if (allRealDone && !task.notifiedAll) {
       task.notifiedAll = true;
       logger.info('scheduler', `ALL_DONE ${videoId} total=${total}`);

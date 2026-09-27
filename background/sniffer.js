@@ -12,7 +12,7 @@ const STORE_PREFIX = 'streams:';
 
 // ── 嗅探主通道：捕获 m3u8 请求 URL ──
 function onRequest(details) {
-  if (!details.url.includes('.m3u8')) return;
+  if (!/\.m3u8(?:$|[?#])/i.test(details.url)) return;
   const tabId = details.tabId;
   if (tabId < 0) return; // 非页面请求（如 SW 自身）忽略
   enqueue(tabId, details.url);
@@ -20,6 +20,8 @@ function onRequest(details) {
 
 // ── 捕获请求头上下文（Cookie/UA/Referer）──
 function onSendHeaders(details) {
+  // Do not let unrelated page requests overwrite the HLS session headers.
+  if (!/\.(?:m3u8|ts|m4s|mp4|key)(?:$|[?#])/i.test(details.url)) return;
   captureHeaders(details.tabId, details.requestId, details.requestHeaders);
 }
 
@@ -93,8 +95,8 @@ async function persist(tabId) {
       headers: e.headers,
     }));
   const key = STORE_PREFIX + tabId;
-  await chrome.storage.local.set({ [key]: arr });
-  // 去掉 headers（storage 里不存敏感 Cookie，播放会话时由 SW 内存提供）
+  // Persist only public metadata. Request headers can contain cookies and must
+  // remain in the in-memory session map.
   const publicArr = arr.map(({ headers, ...rest }) => rest);
   await chrome.storage.local.set({ [key + ':pub']: publicArr });
 }
@@ -117,10 +119,11 @@ export function registerSniffer() {
 
 export function clearTab(tabId) {
   tabStreams.delete(tabId);
+  chrome.storage.local.remove([STORE_PREFIX + tabId, STORE_PREFIX + tabId + ':pub']).catch(() => {});
 }
 
 // 内容脚本兜底嗅探上报入口
 export function ingestContentStream(tabId, url) {
-  if (!url || !url.includes('.m3u8') || tabId == null) return;
+  if (!url || !/\.m3u8(?:$|[?#])/i.test(url) || tabId == null) return;
   enqueue(tabId, url);
 }
