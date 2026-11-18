@@ -1,0 +1,530 @@
+{
+  "auditDate": "2026-11-18",
+  "note": "License texts retrieved from upstream. Branch resolutions are current audit values, not proof of the commits used for the bundled binary. This is not a complete corresponding-source distribution.",
+  "components": [
+    {
+      "component": "emscripten",
+      "repo": "emscripten-core/emscripten",
+      "declaredRef": "3.1.40",
+      "resolvedCommitAtAudit": "5c27e79dd0a9c4e27ef2326841698cdd4f6b5784",
+      "files": [
+        {
+          "file": "emscripten/LICENSE",
+          "sourcePath": "LICENSE",
+          "url": "https://raw.githubusercontent.com/emscripten-core/emscripten/5c27e79dd0a9c4e27ef2326841698cdd4f6b5784/LICENSE",
+          "sha256": "620a78084fc7ca97c0b5dea9abf891f3ffcadfdbf305276f099c9c4e12fc1d86",
+          "bytes": 5093
+        }
+      ],
+      "errors": []
+    },
+    {
+      "component": "eventemitter3",
+      "repo": "primus/eventemitter3",
+      "declaredRef": "5.0.1",
+      "resolvedCommitAtAudit": "a650549176ded0d0dcc52e27b03ae5669d7dcd7c",
+      "files": [
+        {
+          "file": "eventemitter3/LICENSE",
+          "sourcePath": "LICENSE",
+          "url": "https://raw.githubusercontent.com/primus/eventemitter3/a650549176ded0d0dcc52e27b03ae5669d7dcd7c/LICENSE",
+          "sha256": "3aecc12b1cb28832b5f65ab64291de96568c3f236a74d646281b4491f7bcadbf",
+          "bytes": 1082
+        }
+      ],
+      "errors": []
+    },
+    {
+      "component": "ffmpeg",
+      "repo": "FFmpeg/FFmpeg",
+      "declaredRef": "n5.1.4",
+      "resolvedCommitAtAudit": "4729204c17f756e186d622060088371d10b34f7e",
+      "files": [
+        {
+          "file": "ffmpeg/COPYING.GPLv2",
+          "sourcePath": "COPYING.GPLv2",
+          "url": "https://raw.githubusercontent.com/FFmpeg/FFmpeg/4729204c17f756e186d622060088371d10b34f7e/COPYING.GPLv2",
+          "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643",
+          "bytes": 18092
+        },
+        {
+          "file": "ffmpeg/COPYING.LGPLv2.1",
+          "sourcePath": "COPYING.LGPLv2.1",
+          "url": "https://raw.githubusercontent.com/FFmpeg/FFmpeg/4729204c17f756e186d622060088371d10b34f7e/COPYING.LGPLv2.1",
+          "sha256": "b634ab5640e258563c536e658cad87080553df6f34f62269a21d554844e58bfe",
+          "bytes": 26526
+        },
+        {
+          "file": "ffmpeg/LICENSE.md",
+          "sourcePath": "LICENSE.md",
+          "url": "https://raw.githubusercontent.com/FFmpeg/FFmpeg/4729204c17f756e186d622060088371d10b34f7e/LICENSE.md",
+          "sha256": "cb48bf09a11f5fb576cddb0431c8f5ed0a60157a9ec942adffc13907cbe083f2",
+          "bytes": 4376
+        }
+      ],
+      "errors": []
+    },
+    {
+      "component": "ffmpeg-wasm",
+      "repo": "ffmpegwasm/ffmpeg.wasm",
+      "declaredRef": "71aa99d37c02a7b4c435275ca9ef50e612f6efa1",
+      "resolvedCommitAtAudit": "71aa99d37c02a7b4c435275ca9ef50e612f6efa1",
+      "files": [
+        {
+          "file": "ffmpeg-wasm/LICENSE",
+          "sourcePath": "LICENSE",
+          "url": "https://raw.githubusercontent.com/ffmpegwasm/ffmpeg.wasm/71aa99d37c02a7b4c435275ca9ef50e612f6efa1/LICENSE",
+          "sha256": "3e123e29517d76504ffce77b3f8e2ccffd4712493f27694b0aba3e376676459f",
+          "bytes": 1066
+        }
+      ],
+      "errors": []
+    },
+    {
+      "component": "ffmpeg-wrapper",
+      "repo": "ffmpegwasm/ffmpeg.wasm",
+      "declaredRef": "e0d4c62a229ba58ea0c6e6b881e289f2fefe97c4",
+      "resolvedCommitAtAudit": "e0d4c62a229ba58ea0c6e6b881e289f2fefe97c4",
+      "files": [
+        {
+          "file": "ffmpeg-wrapper/LICENSE",
+          "sourcePath": "LICENSE",
+          "url": "https://raw.githubusercontent.com/ffmpegwasm/ffmpeg.wasm/e0d4c62a229ba58ea0c6e6b881e289f2fefe97c4/LICENSE",
+          "sha256": "3e123e29517d76504ffce77b3f8e2ccffd4712493f27694b0aba3e376676459f",
+          "bytes": 1066
+        }
+      ],
+      "errors": []
+    },
+    {
+      "component": "freetype",
+      "repo": "ffmpegwasm/freetype2",
+      "declaredRef": "VER-2-10-4",
+      "resolvedCommitAtAudit": "6a2b3e4007e794bfc6c91030d0ed987f925164a8",
+      "files": [
+        {
+          "file": "freetype/docs-LICENSE.TXT",
+          "sourcePath": "docs/LICENSE.TXT",
+          "url": "https://raw.githubusercontent.com/ffmpegwasm/freetype2/6a2b3e4007e794bfc6c91030d0ed987f925164a8/docs/LICENSE.TXT",
+          "sha256": "fd056de4196903a676208ef58cfddafc7d583d1f28fa2e44c309cf84a59e62fb",
+          "bytes": 1743
+        },
+        {
+          "file": "freetype/docs-FTL.TXT",
+          "sourcePath": "docs/FTL.TXT",
+          "url": "https://raw.githubusercontent.com/ffmpegwasm/freetype2/6a2b3e4007e794bfc6c91030d0ed987f925164a8/docs/FTL.TXT",
+          "sha256": "08c135755dd589039470f1fdbb400daaabaaa50d0b366d19cebff4d22986baa1",
+          "bytes": 6743
+        },
+        {
+          "file": "freetype/docs-GPLv2.TXT",
+          "sourcePath": "docs/GPLv2.TXT",
+          "url": "https://raw.githubusercontent.com/ffmpegwasm/freetype2/6a2b3e4007e794bfc6c91030d0ed987f925164a8/docs/GPLv2.TXT",
+          "sha256": "c4120c6752c910c299e3bd9cb3a46ff262c268303ca2069b61f92f10a5656c18",
+          "bytes": 17994
+        }
+      ],
+      "errors": []
+    },
+    {
+      "component": "fribidi",
+      "repo": "fribidi/fribidi",
+      "declaredRef": "v1.0.9",
+      "resolvedCommitAtAudit": "f9e8e71a6fbf4a4619481284c9f484d10e559995",
+      "files": [
+        {
+          "file": "fribidi/COPYING",
+          "sourcePath": "COPYING",
+          "url": "https://raw.githubusercontent.com/fribidi/fribidi/f9e8e71a6fbf4a4619481284c9f484d10e559995/COPYING",
+          "sha256": "32434afcc8666ba060e111d715bfdb6c2d5dd8a35fa4d3ab8ad67d8f850d2f2b",
+          "bytes": 26440
+        }
+      ],
+      "errors": []
+    },
+    {
+      "component": "harfbuzz",
+      "repo": "harfbuzz/harfbuzz",
+      "declaredRef": "5.2.0",
+      "resolvedCommitAtAudit": "4a1d891c6317d2c83e5f3c2607ec5f5ccedffcde",
+      "files": [
+        {
+          "file": "harfbuzz/COPYING",
+          "sourcePath": "COPYING",
+          "url": "https://raw.githubusercontent.com/harfbuzz/harfbuzz/4a1d891c6317d2c83e5f3c2607ec5f5ccedffcde/COPYING",
+          "sha256": "4345e1735f8bc6d812fed5180cabb5a5e88a4109d332652f2a45c13cfa5ee692",
+          "bytes": 1829
+        }
+      ],
+      "errors": []
+    },
+    {
+      "component": "hls-js",
+      "repo": "video-dev/hls.js",
+      "declaredRef": "518ec40621c4affd27a4f385c1701d1662269e32",
+      "resolvedCommitAtAudit": "518ec40621c4affd27a4f385c1701d1662269e32",
+      "files": [
+        {
+          "file": "hls-js/LICENSE",
+          "sourcePath": "LICENSE",
+          "url": "https://raw.githubusercontent.com/video-dev/hls.js/518ec40621c4affd27a4f385c1701d1662269e32/LICENSE",
+          "sha256": "ca8773cf798c7ed997d4dd7c8e23c348699f8d5b7462636694cc14de6cda12db",
+          "bytes": 1338
+        },
+        {
+          "file": "hls-js/Apache-2.0.txt",
+          "sourcePath": "Apache License 2.0 full text",
+          "url": "https://api.github.com/licenses/apache-2.0",
+          "sha256": "c95bae1d1ce0235ecccd3560b772ec1efb97f348a79f0fbe0a634f0c2ccefe2c",
+          "bytes": 11358
+        }
+      ],
+      "errors": []
+    },
+    {
+      "component": "lame",
+      "repo": "ffmpegwasm/lame",
+      "declaredRef": "master",
+      "resolvedCommitAtAudit": "2badea1974ae36cb8312afe99cff1e6b3b5decee",
+      "files": [
+        {
+          "file": "lame/COPYING",
+          "sourcePath": "COPYING",
+          "url": "https://raw.githubusercontent.com/ffmpegwasm/lame/2badea1974ae36cb8312afe99cff1e6b3b5decee/COPYING",
+          "sha256": "bfe4a52dc4645385f356a8e83cc54216a293e3b6f1cb4f79f5fc0277abf937fd",
+          "bytes": 25284
+        },
+        {
+          "file": "lame/LICENSE",
+          "sourcePath": "LICENSE",
+          "url": "https://raw.githubusercontent.com/ffmpegwasm/lame/2badea1974ae36cb8312afe99cff1e6b3b5decee/LICENSE",
+          "sha256": "7a40cbd8818c57e5285e83c772a459a996d1662c824a879836b97b473c07cae4",
+          "bytes": 487
+        }
+      ],
+      "errors": []
+    },
+    {
+      "component": "libass",
+      "repo": "libass/libass",
+      "declaredRef": "0.15.0",
+      "resolvedCommitAtAudit": "d149636f502f5774ae1a8fb4c554b122674393b2",
+      "files": [
+        {
+          "file": "libass/COPYING",
+          "sourcePath": "COPYING",
+          "url": "https://raw.githubusercontent.com/libass/libass/d149636f502f5774ae1a8fb4c554b122674393b2/COPYING",
+          "sha256": "f7e30699d02798351e7f839e3d3bfeb29ce65e44efa7735c225464c4fd7dfe9c",
+          "bytes": 755
+        }
+      ],
+      "errors": []
+    },
+    {
+      "component": "libvpx",
+      "repo": "ffmpegwasm/libvpx",
+      "declaredRef": "v1.13.1",
+      "resolvedCommitAtAudit": "10b9492dcf05b652e2e4b370e205bd605d421972",
+      "files": [
+        {
+          "file": "libvpx/LICENSE",
+          "sourcePath": "LICENSE",
+          "url": "https://raw.githubusercontent.com/ffmpegwasm/libvpx/10b9492dcf05b652e2e4b370e205bd605d421972/LICENSE",
+          "sha256": "8267348d5af1262c11d1a08de2f5afc77457755f1ac658627dd9acf71011d615",
+          "bytes": 1537
+        },
+        {
+          "file": "libvpx/PATENTS",
+          "sourcePath": "PATENTS",
+          "url": "https://raw.githubusercontent.com/ffmpegwasm/libvpx/10b9492dcf05b652e2e4b370e205bd605d421972/PATENTS",
+          "sha256": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c",
+          "bytes": 1436
+        },
+        {
+          "file": "libvpx/AUTHORS",
+          "sourcePath": "AUTHORS",
+          "url": "https://raw.githubusercontent.com/ffmpegwasm/libvpx/10b9492dcf05b652e2e4b370e205bd605d421972/AUTHORS",
+          "sha256": "feafebb104c3fc8b268224b5399a176370590717acb89f853885f12d565161ce",
+          "bytes": 8286
+        }
+      ],
+      "errors": []
+    },
+    {
+      "component": "libwebp",
+      "repo": "ffmpegwasm/libwebp",
+      "declaredRef": "v1.3.2",
+      "resolvedCommitAtAudit": "ca332209cb5567c9b249c86788cb2dbf8847e760",
+      "files": [
+        {
+          "file": "libwebp/COPYING",
+          "sourcePath": "COPYING",
+          "url": "https://raw.githubusercontent.com/ffmpegwasm/libwebp/ca332209cb5567c9b249c86788cb2dbf8847e760/COPYING",
+          "sha256": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf",
+          "bytes": 1496
+        },
+        {
+          "file": "libwebp/PATENTS",
+          "sourcePath": "PATENTS",
+          "url": "https://raw.githubusercontent.com/ffmpegwasm/libwebp/ca332209cb5567c9b249c86788cb2dbf8847e760/PATENTS",
+          "sha256": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c",
+          "bytes": 1436
+        },
+        {
+          "file": "libwebp/AUTHORS",
+          "sourcePath": "AUTHORS",
+          "url": "https://raw.githubusercontent.com/ffmpegwasm/libwebp/ca332209cb5567c9b249c86788cb2dbf8847e760/AUTHORS",
+          "sha256": "9f43aafb76998315d1eac1e441fbd8e1edc28107a7d28ae26223d258f577e84a",
+          "bytes": 2734
+        }
+      ],
+      "errors": []
+    },
+    {
+      "component": "ogg",
+      "repo": "ffmpegwasm/Ogg",
+      "declaredRef": "v1.3.4",
+      "resolvedCommitAtAudit": "bada45718453ac27b56773ae663f7e65112f6a6e",
+      "files": [
+        {
+          "file": "ogg/COPYING",
+          "sourcePath": "COPYING",
+          "url": "https://raw.githubusercontent.com/ffmpegwasm/Ogg/bada45718453ac27b56773ae663f7e65112f6a6e/COPYING",
+          "sha256": "d2ab5758336489da61c12cc5bb757da5339c4ae9001f9bb0562b4370249af814",
+          "bytes": 1466
+        }
+      ],
+      "errors": []
+    },
+    {
+      "component": "opus",
+      "repo": "ffmpegwasm/opus",
+      "declaredRef": "v1.3.1",
+      "resolvedCommitAtAudit": "e85ed7726db5d677c9c0677298ea0cb9c65bdd23",
+      "files": [
+        {
+          "file": "opus/COPYING",
+          "sourcePath": "COPYING",
+          "url": "https://raw.githubusercontent.com/ffmpegwasm/opus/e85ed7726db5d677c9c0677298ea0cb9c65bdd23/COPYING",
+          "sha256": "8338ce8d922bb4416ce3dd1e5680173332435e3f0755007ac7801ccd674fe682",
+          "bytes": 1928
+        }
+      ],
+      "errors": []
+    },
+    {
+      "component": "sdl2",
+      "repo": "libsdl-org/SDL",
+      "declaredRef": "release-2.24.2",
+      "resolvedCommitAtAudit": "55b03c7493a7abed33cf803d1380a40fa8af903f",
+      "files": [
+        {
+          "file": "sdl2/LICENSE.txt",
+          "sourcePath": "LICENSE.txt",
+          "url": "https://api.github.com/repos/libsdl-org/SDL/contents/LICENSE.txt?ref=55b03c7493a7abed33cf803d1380a40fa8af903f",
+          "sha256": "fcb07e07ac6bc8b2fcf047b50431ef4ebe5b619d7ca7c82212018309a9067426",
+          "bytes": 884
+        }
+      ],
+      "errors": []
+    },
+    {
+      "component": "theora",
+      "repo": "ffmpegwasm/theora",
+      "declaredRef": "v1.1.1",
+      "resolvedCommitAtAudit": "7ffd8b2ecfc2d93ae5e16028e7528e609266bfbf",
+      "files": [
+        {
+          "file": "theora/COPYING",
+          "sourcePath": "COPYING",
+          "url": "https://raw.githubusercontent.com/ffmpegwasm/theora/7ffd8b2ecfc2d93ae5e16028e7528e609266bfbf/COPYING",
+          "sha256": "8417fad7da775735564e209484a2e011e0fa201e94f01fdbee6e4977e478e6fc",
+          "bytes": 1470
+        },
+        {
+          "file": "theora/LICENSE",
+          "sourcePath": "LICENSE",
+          "url": "https://raw.githubusercontent.com/ffmpegwasm/theora/7ffd8b2ecfc2d93ae5e16028e7528e609266bfbf/LICENSE",
+          "sha256": "654a0238f789f4435c4818f50005b141d013c5a09a31d861efc1d0d67ba975a4",
+          "bytes": 964
+        }
+      ],
+      "errors": []
+    },
+    {
+      "component": "url-toolkit",
+      "repo": "tjenkinson/url-toolkit",
+      "declaredRef": "v2.2.5",
+      "resolvedCommitAtAudit": "d02ff136835786a00c55c0e69e38dd7cc26d5acc",
+      "files": [
+        {
+          "file": "url-toolkit/LICENSE",
+          "sourcePath": "LICENSE",
+          "url": "https://raw.githubusercontent.com/tjenkinson/url-toolkit/d02ff136835786a00c55c0e69e38dd7cc26d5acc/LICENSE",
+          "sha256": "0fa4bd51fab4d066970c481917d77f222253ee82344caf07efd03801aa558dff",
+          "bytes": 10758
+        }
+      ],
+      "errors": []
+    },
+    {
+      "component": "vorbis",
+      "repo": "ffmpegwasm/vorbis",
+      "declaredRef": "v1.3.3",
+      "resolvedCommitAtAudit": "7798164043197d7e33f02de4353ce2aa5b248225",
+      "files": [
+        {
+          "file": "vorbis/COPYING",
+          "sourcePath": "COPYING",
+          "url": "https://raw.githubusercontent.com/ffmpegwasm/vorbis/7798164043197d7e33f02de4353ce2aa5b248225/COPYING",
+          "sha256": "414bfd5d8ee64395a9231d6386188461500052c10915bee08b18bfa9489dd0b3",
+          "bytes": 1470
+        }
+      ],
+      "errors": []
+    },
+    {
+      "component": "x264",
+      "repo": "ffmpegwasm/x264",
+      "declaredRef": "4-cores",
+      "resolvedCommitAtAudit": "33cac6b77d5b9259c552156013a817ab23119612",
+      "files": [
+        {
+          "file": "x264/COPYING",
+          "sourcePath": "COPYING",
+          "url": "https://raw.githubusercontent.com/ffmpegwasm/x264/33cac6b77d5b9259c552156013a817ab23119612/COPYING",
+          "sha256": "32b1062f7da84967e7019d01ab805935caa7ab7321a7ced0e30ebe75e5df1670",
+          "bytes": 17992
+        }
+      ],
+      "errors": []
+    },
+    {
+      "component": "x265",
+      "repo": "ffmpegwasm/x265",
+      "declaredRef": "3.4",
+      "resolvedCommitAtAudit": "2bb5520e9596f361bf0ed81b3b8da0d7fd999069",
+      "files": [
+        {
+          "file": "x265/COPYING",
+          "sourcePath": "COPYING",
+          "url": "https://raw.githubusercontent.com/ffmpegwasm/x265/2bb5520e9596f361bf0ed81b3b8da0d7fd999069/COPYING",
+          "sha256": "d8afb1bcc7a2cfc603683b168d6987ef0a48e59e0da3693bf55c5d33b67e2b49",
+          "bytes": 18120
+        }
+      ],
+      "errors": []
+    },
+    {
+      "component": "zimg",
+      "repo": "sekrit-twc/zimg",
+      "declaredRef": "release-3.0.5",
+      "resolvedCommitAtAudit": "e5b0de6bebbcbc66732ed5afaafef6b2c7dfef87",
+      "files": [
+        {
+          "file": "zimg/COPYING",
+          "sourcePath": "COPYING",
+          "url": "https://raw.githubusercontent.com/sekrit-twc/zimg/e5b0de6bebbcbc66732ed5afaafef6b2c7dfef87/COPYING",
+          "sha256": "7637386b5f81e8a719ca336233149005e5fa28b5e6054ea7b67de49355b0ad40",
+          "bytes": 484
+        }
+      ],
+      "errors": []
+    },
+    {
+      "component": "zlib",
+      "repo": "ffmpegwasm/zlib",
+      "declaredRef": "v1.2.11",
+      "resolvedCommitAtAudit": "cacf7f1d4e3d44d871b605da3b647f07d718623f",
+      "files": [
+        {
+          "file": "zlib/README",
+          "sourcePath": "README",
+          "url": "https://raw.githubusercontent.com/ffmpegwasm/zlib/cacf7f1d4e3d44d871b605da3b647f07d718623f/README",
+          "sha256": "7960b6b1cc63e619abb77acaea5427159605afee8c8b362664f4effc7d7f7d15",
+          "bytes": 5187
+        }
+      ],
+      "errors": []
+    }
+  ],
+  "bundledFiles": [
+    {
+      "file": "lib/hls.light.min.js",
+      "bytes": 296474,
+      "sha256": "1efdf4caf7ae5766d151161e85e03106b23fadc4db66c3dae86392f597c8fbe8"
+    },
+    {
+      "file": "lib/ffmpeg12-core/esm/ffmpeg-core.js",
+      "bytes": 111804,
+      "sha256": "67a48f11645f85439f3fde4f2119042c16b374b910206b7a7a24f342e28dcae3"
+    },
+    {
+      "file": "lib/ffmpeg12-core/esm/ffmpeg-core.wasm",
+      "bytes": 32232419,
+      "sha256": "9f57947a5bd530d8f00c5b3f2cb2a3492faa7e5d823315342d6a8656d0a6b7b7"
+    }
+  ],
+  "npmSources": [
+    {
+      "name": "@ffmpeg/core",
+      "version": "0.12.9",
+      "releaseCommit": "21b90a8d099719b8d91d9e5776314b236f2f5f80",
+      "published": "2025-01-06T22:53:00.165Z",
+      "registry": "https://registry.npmjs.org/@ffmpeg/core/0.12.9",
+      "tarball": "https://registry.npmjs.org/@ffmpeg/core/-/core-0.12.9.tgz",
+      "integrity": "sha512-nvkst/Y9OZtTkKhK53zUrIwmu5Ot+4NvXFOcl/CLQxrJwv22s4+tEMRaB24aa3UlTJoFi0H9+6vzqcBHoDGkZA=="
+    },
+    {
+      "name": "@ffmpeg/core",
+      "version": "0.12.10",
+      "releaseCommit": "71aa99d37c02a7b4c435275ca9ef50e612f6efa1",
+      "published": "2025-01-07T10:13:14.328Z",
+      "registry": "https://registry.npmjs.org/@ffmpeg/core/0.12.10",
+      "tarball": "https://registry.npmjs.org/@ffmpeg/core/-/core-0.12.10.tgz",
+      "integrity": "sha512-dzNplnn2Nxle2c2i2rrDhqcB19q9cglCkWnoMTDN9Q9l3PvdjZWd1HfSPjCNWc/p8Q3CT+Es9fWOR0UhAeYQZA=="
+    },
+    {
+      "name": "@ffmpeg/ffmpeg",
+      "version": "0.12.10",
+      "gitHead": "e0d4c62a229ba58ea0c6e6b881e289f2fefe97c4",
+      "registry": "https://registry.npmjs.org/@ffmpeg/ffmpeg/0.12.10",
+      "tarball": "https://registry.npmjs.org/@ffmpeg/ffmpeg/-/ffmpeg-0.12.10.tgz"
+    },
+    {
+      "name": "hls.js",
+      "version": "1.5.17",
+      "gitHead": "518ec40621c4affd27a4f385c1701d1662269e32",
+      "registry": "https://registry.npmjs.org/hls.js/1.5.17",
+      "tarball": "https://registry.npmjs.org/hls.js/-/hls.js-1.5.17.tgz"
+    }
+  ],
+  "buildEvidence": {
+    "coreSource": "https://github.com/ffmpegwasm/ffmpeg.wasm/tree/71aa99d37c02a7b4c435275ca9ef50e612f6efa1",
+    "recipeFiles": [
+      "Dockerfile",
+      "Makefile",
+      "build/ffmpeg.sh",
+      "build/ffmpeg-wasm.sh",
+      "build/*.sh",
+      "src/bind/",
+      "src/fftools/"
+    ],
+    "buildCommand": "make prd",
+    "emscriptenCommitFromBinary": "5c27e79dd0a9c4e27ef2326841698cdd4f6b5784",
+    "sdlPortRecipe": "https://github.com/emscripten-core/emscripten/blob/5c27e79dd0a9c4e27ef2326841698cdd4f6b5784/tools/ports/sdl2.py",
+    "sdlArchiveSha512": "b178bdc8f7c40271e09a72f639649d1d61953dda4dc12b77437259667b63b961fd3b2c67b0de6fdc5f9f9c80c49bfafd164e4c13715bc1056e550acc8bad5a3c",
+    "historicalBranchEvidence": [
+      {
+        "name": "x264",
+        "commit": "33cac6b77d5b9259c552156013a817ab23119612",
+        "commitDate": "2022-08-22T01:45:45Z"
+      },
+      {
+        "name": "lame",
+        "commit": "2badea1974ae36cb8312afe99cff1e6b3b5decee",
+        "commitDate": "2020-10-29T03:19:54Z"
+      }
+    ]
+  }
+}

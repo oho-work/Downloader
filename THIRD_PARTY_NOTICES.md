@@ -2,6 +2,8 @@
 
 根目录的 `LICENSE` 仅覆盖项目自有代码及文档，**不覆盖** `lib/` 中随附的第三方文件。仓库没有锁文件或可复现的第三方构建脚本；下列版本经文件哈希与上游 npm 包核对，公开发布前仍需补齐第三方许可证、版权声明和源码提供方式。
 
+2026-11-18 已收集上游许可原文和逐文件校验记录，见 [third-party-licenses](third-party-licenses/README.md)。核心发行提交、全部配方源码、构建脚本及已知限制见[源码审计](docs/third-party-sources.md)。许可文本已附入候选包，对应源码归档已在本地生成，提交商店前还需在同一发行位置提供公开下载。
+
 | 文件 | 上游项目 | 已知许可/说明 |
 | --- | --- | --- |
 | `lib/hls.light.min.js` | [hls.js](https://github.com/video-dev/hls.js) `1.5.17` | Apache-2.0；应随分发保留许可证、版权及适用的 NOTICE。 |
