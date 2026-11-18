@@ -1,13 +1,14 @@
 // popup/popup.js
 // 插件弹窗：嗅探视图（候选流） + 缓存视图（已缓存视频，可重新打开 / 删除）
 (() => {
+  document.getElementById('version').textContent = 'v' + chrome.runtime.getManifest().version;
   const listEl = document.getElementById('list');
   const subtitle = document.getElementById('subtitle');
   const mainNav = document.getElementById('mainNav');
   const mainFooter = document.getElementById('mainFooter');
   const settingsView = document.getElementById('settingsView');
   const clearBtn = document.getElementById('clearBtn');
-  const DEFAULTS = { sniffEnabled: true, maxConcurrent: 16, timeoutMs: 30000, maxRetry: 5 };
+  const DEFAULTS = { sniffEnabled: true, maxConcurrent: 16, timeoutMs: 30000, maxRetry: 5, downloadProxyEnabled: false, downloadProxyUrl: '', downloadRelayUrl: 'http://127.0.0.1:17891' };
   let activeView = 'sniff';
 
   async function getActiveTab() {
@@ -55,10 +56,13 @@
         <div class="meta">${meta.join('<span>·</span>')}</div>
         <div class="play">在独立标签页播放 →</div>`;
       item.addEventListener('click', async () => {
-        await chrome.runtime.sendMessage({
-          type: 'OPEN_PLAYER', stream: { url: s.url, domain: s.domain, live: s.live }, title: tab.title || '',
-        });
-        window.close();
+        try {
+          const result = await chrome.runtime.sendMessage({
+            type: 'OPEN_PLAYER', tabId: tab.id, stream: { url: s.url, domain: s.domain, live: s.live }, title: tab.title || '',
+          });
+          if (!result?.ok) throw new Error(result?.error || '打开播放页失败');
+          window.close();
+        } catch (error) { alert('打开播放页失败：' + (error?.message || error)); }
       });
       listEl.append(item);
     });
@@ -155,6 +159,11 @@
     document.getElementById('maxConcurrent').value = s.maxConcurrent;
     document.getElementById('timeoutMs').value = Math.round(s.timeoutMs / 1000);
     document.getElementById('maxRetry').value = s.maxRetry;
+    document.getElementById('downloadProxyEnabled').checked = s.downloadProxyEnabled === true;
+    document.getElementById('downloadProxyUrl').value = s.downloadProxyUrl || '';
+    document.getElementById('downloadRelayUrl').value = s.downloadRelayUrl;
+    updateProxyInput();
+    showSettingsError('');
   }
 
   function collectSettings() {
@@ -164,8 +173,25 @@
     return {
       sniffEnabled: document.getElementById('sniffEnabled').checked,
       maxConcurrent, timeoutMs, maxRetry,
+      downloadProxyEnabled: document.getElementById('downloadProxyEnabled').checked,
+      downloadProxyUrl: document.getElementById('downloadProxyUrl').value.trim(),
+      downloadRelayUrl: document.getElementById('downloadRelayUrl').value.trim(),
     };
   }
+
+  function updateProxyInput() {
+    const enabled = document.getElementById('downloadProxyEnabled').checked;
+    document.getElementById('downloadProxyUrl').disabled = !enabled;
+    document.getElementById('relaySettings').hidden = !enabled;
+  }
+
+  function showSettingsError(message) {
+    const error = document.getElementById('settingsError');
+    error.textContent = message;
+    error.hidden = !message;
+  }
+
+  document.getElementById('downloadProxyEnabled').addEventListener('change', updateProxyInput);
 
   document.getElementById('settingsBtn').addEventListener('click', async () => {
     setSettingsVisible(true);
@@ -176,25 +202,45 @@
     render();
   });
   document.getElementById('saveSettings').addEventListener('click', async () => {
-    const settings = collectSettings();
-    const r = await chrome.runtime.sendMessage({ type: 'SAVE_SETTINGS', settings });
-    if (r && r.ok) {
-      const btn = document.getElementById('saveSettings');
+    const btn = document.getElementById('saveSettings');
+    btn.disabled = true;
+    showSettingsError('');
+    try {
+      const settings = collectSettings();
+      const r = await chrome.runtime.sendMessage({ type: 'SAVE_SETTINGS', settings });
+      if (!r?.ok) throw new Error(r?.error || '保存设置失败');
       const old = btn.textContent;
       btn.textContent = '已保存';
       setTimeout(() => { btn.textContent = old; }, 1200);
+    } catch (error) {
+      showSettingsError(error?.message || '保存设置失败');
+    } finally {
+      btn.disabled = false;
     }
   });
   document.getElementById('resetSettings').addEventListener('click', async () => {
-    document.getElementById('sniffEnabled').checked = DEFAULTS.sniffEnabled;
-    document.getElementById('maxConcurrent').value = DEFAULTS.maxConcurrent;
-    document.getElementById('timeoutMs').value = DEFAULTS.timeoutMs / 1000;
-    document.getElementById('maxRetry').value = DEFAULTS.maxRetry;
-    await chrome.runtime.sendMessage({ type: 'SAVE_SETTINGS', settings: DEFAULTS });
     const btn = document.getElementById('resetSettings');
-    const old = btn.textContent;
-    btn.textContent = '已恢复';
-    setTimeout(() => { btn.textContent = old; }, 1200);
+    btn.disabled = true;
+    showSettingsError('');
+    try {
+      const r = await chrome.runtime.sendMessage({ type: 'SAVE_SETTINGS', settings: DEFAULTS });
+      if (!r?.ok) throw new Error(r?.error || '恢复默认失败');
+      document.getElementById('sniffEnabled').checked = DEFAULTS.sniffEnabled;
+      document.getElementById('maxConcurrent').value = DEFAULTS.maxConcurrent;
+      document.getElementById('timeoutMs').value = DEFAULTS.timeoutMs / 1000;
+      document.getElementById('maxRetry').value = DEFAULTS.maxRetry;
+      document.getElementById('downloadProxyEnabled').checked = DEFAULTS.downloadProxyEnabled;
+      document.getElementById('downloadProxyUrl').value = DEFAULTS.downloadProxyUrl;
+      document.getElementById('downloadRelayUrl').value = DEFAULTS.downloadRelayUrl;
+      updateProxyInput();
+      const old = btn.textContent;
+      btn.textContent = '已恢复';
+      setTimeout(() => { btn.textContent = old; }, 1200);
+    } catch (error) {
+      showSettingsError(error?.message || '恢复默认失败');
+    } finally {
+      btn.disabled = false;
+    }
   });
 
   render();

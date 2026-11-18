@@ -37,7 +37,7 @@ export function parsePlaylist(text, baseUrl) {
     if (line.startsWith('#EXT-X-KEY')) {
       // METHOD=NONE clears encryption for following segments. Treating this
       // marker as a key would make export attempt to fetch a non-existent key.
-      const method = (line.match(/METHOD=([^,]+)/i) || [])[1];
+      const method = (line.match(/(?:^|[:,])\s*METHOD\s*=\s*([^,]+)/i) || [])[1]?.trim();
       if (String(method || '').toUpperCase() === 'NONE') curKey = null;
       else { out.encrypted = true; curKey = line; }
       continue;
@@ -45,7 +45,7 @@ export function parsePlaylist(text, baseUrl) {
     if (line.startsWith('#EXTINF')) { cur.dur = parseFloat(line.split(':')[1]) || 0; continue; }
     if (line.startsWith('#EXT-X-MEDIA-SEQUENCE:')) { out.mediaSequence = Number(line.slice(22)) || 0; continue; }
     if (line.startsWith('#EXT-X-TARGETDURATION')) { out.targetDuration = parseInt(line.split(':')[1], 10) || 0; continue; }
-    if (line.startsWith('#EXT-X-DISCONTINUITY')) { discontinuity = true; continue; }
+    if (line === '#EXT-X-DISCONTINUITY') { discontinuity = true; continue; }
     if (line.startsWith('#EXT-X-ENDLIST')) { out.live = false; continue; }
     if (!line.startsWith('#') && line.length) {
       out.segments.push({
@@ -56,13 +56,17 @@ export function parsePlaylist(text, baseUrl) {
         start: out.totalDuration,
         discontinuity,
         key: curKey,
+        // Relative keys belong to the media playlist, which may be a child
+        // playlist or the final URL after an HTTP redirect.
+        keyBaseUrl: curKey ? baseUrl : null,
       });
       out.totalDuration += cur.dur;
       cur = { dur: 0 };
       discontinuity = false;
     }
   }
-  // 无 ENDLIST 视为直播流
-  if (!/EXT-X-ENDLIST/.test(text)) out.live = true;
+  // A master has no ENDLIST; the selected media playlist determines whether
+  // it is live. Do not discard every master before that playlist is fetched.
+  out.live = !out.isMaster && !lines.some(line => line.trim() === '#EXT-X-ENDLIST');
   return out;
 }

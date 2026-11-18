@@ -15,6 +15,7 @@
         <span id="subtitle">当前页嗅探结果</span>
       </div>
     </div>
+    <span id="version" class="version"></span>
   </header>
 
   <nav class="tabs" id="mainNav">
@@ -38,7 +39,21 @@
       <div class="settings-row"><span>单分片请求超时（秒）</span><input type="number" id="timeoutMs" min="1" max="120"></div>
       <div class="settings-row"><span>失败重试次数</span><input type="number" id="maxRetry" min="0" max="10"></div>
     </div>
+    <div class="settings-group proxy-group">
+      <div class="settings-row"><label for="downloadProxyEnabled">启用下载代理</label><label class="switch"><input type="checkbox" id="downloadProxyEnabled" aria-describedby="proxyScope"><span class="sl"></span></label></div>
+      <label class="proxy-address" for="downloadProxyUrl">代理地址
+        <input type="text" id="downloadProxyUrl" placeholder="http://127.0.0.1:7890" spellcheck="false" autocomplete="off" title="支持 HTTP(S)、SOCKS4、SOCKS5，无账号密码" aria-describedby="proxyScope">
+      </label>
+      <div id="relaySettings" hidden>
+        <label class="proxy-address" for="downloadRelayUrl">本地服务
+          <input type="text" id="downloadRelayUrl" placeholder="http://127.0.0.1:17891" spellcheck="false" autocomplete="off" aria-describedby="relayHelp">
+        </label>
+        <p class="settings-note" id="relayHelp">启动服务（Node.js 18+）：<code>node tools/download-relay.cjs</code></p>
+      </div>
+      <p class="settings-note" id="proxyScope">仅用于扩展下载，支持 HTTP(S)、SOCKS4/5。</p>
+    </div>
     <p class="settings-note">导出格式固定为 MP4，文件名使用当前网页标题。</p>
+    <p id="settingsError" class="settings-error" role="alert" hidden></p>
     <div class="settings-actions">
       <button id="resetSettings" class="ghost">恢复默认</button>
       <button id="saveSettings" class="primary">保存设置</button>

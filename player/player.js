@@ -10,6 +10,7 @@ import { decryptHlsSegment } from './hls-crypto.js';
 
 const $ = (id) => document.getElementById(id);
 const video = $('video');
+video.muted = true;
 const q = new URLSearchParams(location.search);
 const videoId = q.get('v');
 
@@ -78,8 +79,8 @@ function initPlayer() {
   video.addEventListener('waiting', () => $('status').textContent = '缓冲中');
   video.addEventListener('loadeddata', () => {
     $('status').textContent = '已连接'; $('loading').style.display = 'none';
-    // 默认有声自动播放；若被浏览器拦截，回退静音自动播放，用户点喇叭即可恢复声音
-    video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });
+    // 静音自动播放；用户可通过原生播放器控件主动开启声音。
+    video.play().catch(() => {});
   });
 }
 

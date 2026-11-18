@@ -56,10 +56,16 @@
     document.documentElement.append(host);
     root = shadow; card = cardEl;
     card.querySelector('.x').onclick = hide;
-    card.querySelector('.btn').onclick = () => {
+    card.querySelector('.btn').onclick = async () => {
       const u = card.__streamUrl;
-      if (u) chrome.runtime.sendMessage({ type: 'OPEN_PLAYER', stream: { url: u } });
-      hide();
+      if (!u) return;
+      try {
+        const result = await chrome.runtime.sendMessage({ type: 'OPEN_PLAYER', stream: { url: u } });
+        if (!result?.ok) throw new Error(result?.error || '打开播放页失败');
+        hide();
+      } catch (error) {
+        card.querySelector('.tip').textContent = error?.message || '打开播放页失败，请重试';
+      }
     };
   }
 

@@ -8,6 +8,7 @@ header{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;align-
 .brand svg{width:30px;height:30px;flex:none}
 .brand b{display:block;font-size:14px;color:#fff}
 .brand span{font-size:11.5px;color:var(--muted)}
+.version{margin-left:auto;font-size:11px;color:var(--muted);white-space:nowrap}
 
 main{padding:10px;max-height:340px;overflow-y:auto}
 #settingsView{padding:10px;max-height:390px;overflow-y:auto}
@@ -39,6 +40,14 @@ footer{padding:12px 14px;border-top:1px solid var(--line);display:flex;justify-c
 .settings-row input[type=number]{width:72px;padding:6px 8px;border:1px solid var(--line);border-radius:7px;background:#0f141c;color:var(--ink);font-size:12px;text-align:right}
 .settings-row input[type=number]:focus{outline:none;border-color:var(--accent)}
 .settings-note{padding:10px 3px 4px;color:var(--muted);font-size:11px;line-height:1.5}
+.proxy-group{margin-top:10px;padding-bottom:8px}
+.proxy-address{display:block;padding-top:10px;color:#d6dce5;font-size:12px}
+.proxy-address input{display:block;width:100%;margin-top:7px;padding:8px;border:1px solid var(--line);border-radius:7px;background:#0f141c;color:var(--ink);font-size:12px}
+.proxy-address input:focus{outline:none;border-color:var(--accent)}
+.proxy-address input:disabled{opacity:.5}
+.proxy-group .settings-note{padding:7px 0 0}
+.proxy-group code{display:block;margin-top:4px;padding:6px;background:#0f141c;border-radius:5px;color:#d6dce5;overflow-wrap:anywhere;user-select:text}
+.settings-error{padding:8px 3px;color:#FCA5A5;font-size:11px;line-height:1.5}
 .settings-actions{display:flex;justify-content:flex-end;gap:8px;padding-top:8px}
 .settings-actions .ghost{border:1px solid var(--line);padding:7px 11px}
 .switch{position:relative;width:38px;height:21px;flex:none}

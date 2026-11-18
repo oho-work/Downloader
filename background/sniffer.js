@@ -4,6 +4,7 @@ import { parsePlaylist } from './m3u8-parser.js';
 import { captureHeaders, getSession } from './session.js';
 import { domainOf } from '../utils/id.js';
 import { logger } from '../utils/logger.js';
+import { fetchResource } from './network.js';
 
 // tabId -> Map<url, stream>（内存缓存，快速读）
 const tabStreams = new Map();
@@ -66,17 +67,30 @@ function enqueue(tabId, url, pageUrl = tabPages.get(tabId) || '') {
 
 // ── 轻量校验：GET 清单文本，解析判定有效性与流类型 ──
 async function verify(tabId, entry) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15000);
   try {
     const headers = entry.headers || {};
-    const res = await fetch(entry.url, { method: 'GET', headers, cache: 'no-store' });
-    if (!res.ok) { entry.valid = false; return; }
-    const text = await res.text();
-    if (!text.startsWith('#EXTM3U')) { entry.valid = false; return; }
-    const p = parsePlaylist(text, entry.url);
+    let url = entry.url, p, isMaster = false;
+    const seen = new Set();
+    for (let depth = 0; depth < 5; depth++) {
+      if (seen.has(url)) { entry.valid = false; return; }
+      seen.add(url);
+      const res = await fetchResource(url, { method: 'GET', headers, credentials: 'include', cache: 'no-store', signal: ctrl.signal });
+      if (!res.ok) { entry.valid = false; return; }
+      const text = await res.text();
+      if (!text.trimStart().startsWith('#EXTM3U')) { entry.valid = false; return; }
+      p = parsePlaylist(text, res.url || url);
+      if (!p.isMaster) break;
+      isMaster = true;
+      url = p.variants[0]?.url;
+      if (!url) { entry.valid = false; return; }
+    }
+    if (!p || p.isMaster || !p.segments.length) { entry.valid = false; return; }
     // 仅支持点播（VOD）：直播流不嗅探、不展示、不通知
     if (p.live) { entry.live = true; entry.valid = false; return; }
     entry.valid = true;
-    entry.isMaster = p.isMaster;
+    entry.isMaster = isMaster;
     entry.live = p.live;
     entry.encrypted = p.encrypted;
     entry.segmentCount = p.segments.length;
@@ -90,7 +104,7 @@ async function verify(tabId, entry) {
     notifyContent(tabId, entry);
   } catch {
     entry.valid = false;
-  }
+  } finally { clearTimeout(timer); }
 }
 
 function notifyContent(tabId, entry) {

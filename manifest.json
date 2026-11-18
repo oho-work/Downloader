@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "HLS Cache Player",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "嗅探、播放、缓存与导出 HLS 点播流；内置 hls.js 和 FFmpeg Wasm，支持导出 MP4。",
   "minimum_chrome_version": "110",
   "icons": {

@@ -7,11 +7,14 @@ import { scheduler, dedupe, PRIO } from './scheduler.js';
 import { saveMeta, getMeta, delMeta, delAllSegments, listAllMeta, saveSettings, getSettings, SEG_STATE } from './cache-store.js';
 import { videoIdFor, sanitizeTitle, domainOf } from '../utils/id.js';
 import { logger } from '../utils/logger.js';
+import { normalizeProxySettings, configureNetwork, fetchResource, DEFAULT_RELAY_URL } from './network.js';
 
 const DEFAULTS = {
   sniffEnabled: true, maxConcurrent: 16, timeoutMs: 30000, maxRetry: 5,
+  downloadProxyEnabled: false, downloadProxyUrl: '',
+  downloadRelayUrl: DEFAULT_RELAY_URL,
 };
-const SETTINGS_KEYS = ['sniffEnabled', 'maxConcurrent', 'timeoutMs', 'maxRetry'];
+const SETTINGS_KEYS = Object.keys(DEFAULTS);
 
 // 播放任务注册表（videoId -> task），headers 只存 SW 内存
 const taskCtx = new Map();
@@ -103,6 +106,7 @@ function normalizeSettings(input = {}) {
     maxConcurrent,
     timeoutMs,
     maxRetry,
+    ...normalizeProxySettings(input),
   };
 }
 
@@ -125,7 +129,7 @@ async function handle(msg, sender) {
     if (meta) {
       const settings = await loadSettings();
       let t = taskCtx.get(msg.videoId);
-      if (!t) { t = { m3u8Url: meta.m3u8Url, headers: undefined, live: meta.live, domain: meta.domain }; taskCtx.set(msg.videoId, t); }
+      if (!t) { t = { m3u8Url: meta.mediaUrl || meta.m3u8Url, headers: undefined, live: meta.live, domain: meta.domain }; taskCtx.set(msg.videoId, t); }
       scheduler.register(msg.videoId, { meta, headers: t.headers, tabId: t.tabId, settings });
       await scheduler.recover(msg.videoId);   // 重置遗留 DOWNLOADING→PENDING（SW 重启后 running 为空，无正在下载，安全）
       await scheduler.refreshM3u8(msg.videoId);
@@ -159,28 +163,26 @@ async function handle(msg, sender) {
     case 'OPEN_PLAYER': {
       const stream = msg.stream;
       if (!stream || !stream.url) return { ok: false, error: 'no stream url' };
-      const tabId = sender.tab && sender.tab.id;
+      const tabId = Number.isInteger(msg.tabId) ? msg.tabId : sender.tab && sender.tab.id;
       const headers = stream.headers || getSession(tabId) || undefined;
       let title = (msg.title || (sender.tab && sender.tab.title) || '').trim();
       title = sanitizeTitle(title);
       const settings = await loadSettings();
 
       const videoId = videoIdFor(stream.url);
-      // 解析清单，构建 meta（主清单 segments 为空，由播放端动态补齐）
+      // 主清单固定使用第一个子流，确保播放、全量缓存和导出使用同一套分片。
       let meta = await getMeta(videoId);
-      if (!meta || meta.m3u8Url !== stream.url) {
+      if (!meta || meta.m3u8Url !== stream.url || (meta.isMaster && !meta.mediaUrl)) {
         try {
-          const text = await fetchText(stream.url, headers);
-          const p = parsePlaylist(text, stream.url);
+          const { playlist: p, url: playlistUrl } = await fetchMediaPlaylist(stream.url, headers, settings.timeoutMs);
           meta = {
-            videoId, m3u8Url: stream.url, title, domain: domainOf(stream.url),
+            videoId, m3u8Url: stream.url, mediaUrl: playlistUrl, playlistUrl, title, domain: domainOf(stream.url),
             live: p.live, isMaster: p.isMaster, encrypted: p.encrypted,
             totalDuration: p.totalDuration, status: 'playing',
-            segments: p.segments.map(s => ({ idx: s.idx, sequence: s.sequence, url: s.url, duration: s.duration, start: s.start, state: SEG_STATE.PENDING, size: 0, key: s.key || null })),
+            segments: p.segments.map(s => ({ ...s, state: SEG_STATE.PENDING, size: 0 })),
           };
         } catch (e) {
-          logger.warn('sw', 'parse m3u8 fail, fallback live meta', e && e.message);
-          meta = { videoId, m3u8Url: stream.url, title, domain: domainOf(stream.url), live: true, isMaster: false, encrypted: false, totalDuration: 0, status: 'playing', segments: [] };
+          return { ok: false, error: '读取 HLS 清单失败：' + (e && e.message || e) };
         }
         await saveMeta(meta);
       }
@@ -188,7 +190,7 @@ async function handle(msg, sender) {
       const url = chrome.runtime.getURL('player/player.html') + '?v=' + encodeURIComponent(videoId);
       const newTab = await chrome.tabs.create({ url });
       await rememberPlayerTab(newTab.id, videoId);
-      taskCtx.set(videoId, { m3u8Url: stream.url, headers, live: meta.live, domain: meta.domain });
+      taskCtx.set(videoId, { m3u8Url: meta.mediaUrl || stream.url, headers, live: meta.live, domain: meta.domain });
       // 注册调度任务（tabId 指向新播放页，用于进度广播）
       scheduler.register(videoId, { meta, headers, tabId: newTab.id, settings });
       return { ok: true, videoId, url };
@@ -202,7 +204,7 @@ async function handle(msg, sender) {
       if (!t) {
         // SW 内存任务丢失（重启/刷新）但 IDB 缓存仍在 → 从缓存恢复，支持离线续看/导出
         const settings = await loadSettings();
-        t = { m3u8Url: meta.m3u8Url, headers: undefined, live: meta.live, domain: meta.domain };
+        t = { m3u8Url: meta.mediaUrl || meta.m3u8Url, headers: undefined, live: meta.live, domain: meta.domain };
         taskCtx.set(msg.videoId, t);
         scheduler.register(msg.videoId, { meta, headers: t.headers, tabId: undefined, settings });
         await scheduler.recover(msg.videoId);   // 重置遗留 DOWNLOADING→PENDING，避免卡死分片不被重下
@@ -217,7 +219,10 @@ async function handle(msg, sender) {
       const t = taskCtx.get(msg.videoId);
       if (!t) return { ok: false, error: 'task not found' };
       const url = msg.url || t.m3u8Url;
-      try { const text = await fetchText(url, t.headers); return { ok: true, text }; }
+      try {
+        const { text, url: playlistUrl } = await fetchText(url, t.headers);
+        return { ok: true, text, url: playlistUrl };
+      }
       catch (e) { return { ok: false, error: String(e && e.message || e) }; }
     }
 
@@ -226,10 +231,13 @@ async function handle(msg, sender) {
       const t = taskCtx.get(msg.videoId);
       if (!t || !msg.uri) return { ok: false, error: 'task or uri missing' };
       try {
-        const res = await fetch(msg.uri, { headers: cleanH(t.headers), credentials: 'include', cache: 'no-store' });
-        if (!res.ok) return { ok: false, error: 'HTTP ' + res.status };
-        const buf = await res.arrayBuffer();
-        return { ok: true, key: Array.from(new Uint8Array(buf)) };
+        if (!t.keys) t.keys = new Map();
+        if (!t.keys.has(msg.uri)) {
+          const pending = fetchKey(msg.uri, t.headers);
+          t.keys.set(msg.uri, pending);
+          pending.catch(() => { if (t.keys.get(msg.uri) === pending) t.keys.delete(msg.uri); });
+        }
+        return { ok: true, key: await t.keys.get(msg.uri) };
       } catch (e) { return { ok: false, error: String(e && e.message || e) }; }
     }
 
@@ -279,7 +287,7 @@ async function handle(msg, sender) {
         let changed = false;
         for (const s of msg.segments || []) {
           if (!meta.segments.some(x => x.url === s.url)) {
-            meta.segments.push({ idx: meta.segments.length, sequence: s.sequence, url: s.url, duration: s.duration || 0, start: s.start != null ? s.start : 0, state: SEG_STATE.PENDING, size: 0, key: s.key || null });
+            meta.segments.push({ idx: meta.segments.length, sequence: s.sequence, url: s.url, duration: s.duration || 0, start: s.start != null ? s.start : 0, state: SEG_STATE.PENDING, size: 0, key: s.key || null, keyBaseUrl: s.keyBaseUrl || meta.playlistUrl || meta.m3u8Url });
             changed = true;
           }
         }
@@ -347,8 +355,10 @@ async function handle(msg, sender) {
     case 'SAVE_SETTINGS': {
       const settings = normalizeSettings(msg.settings);
       await saveSettings(settings);
+      configureNetwork(settings);
       scheduler.setConcurrency(settings.maxConcurrent);
       setSniffEnabled(settings.sniffEnabled);
+      for (const task of scheduler.registry?.values() || []) task.settings = { ...task.settings, ...settings };
       return { ok: true, settings };
     }
 
@@ -356,10 +366,48 @@ async function handle(msg, sender) {
   }
 }
 
-async function fetchText(url, headers) {
-  const res = await fetch(url, { headers: cleanH(headers), credentials: 'include', cache: 'no-store' });
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  return await res.text();
+async function fetchText(url, headers, timeoutMs = 15000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetchResource(url, { headers: cleanH(headers), credentials: 'include', cache: 'no-store', signal: ctrl.signal });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
+    if (!text.trimStart().startsWith('#EXTM3U')) throw new Error('响应不是有效的 HLS 清单');
+    return { text, url: res.url || url };
+  } finally { clearTimeout(timer); }
+}
+
+async function fetchMediaPlaylist(url, headers, timeoutMs) {
+  const seen = new Set();
+  for (let depth = 0; depth < 5; depth++) {
+    if (seen.has(url)) throw new Error('HLS 主清单存在循环引用');
+    seen.add(url);
+    const result = await fetchText(url, headers, timeoutMs);
+    const playlist = parsePlaylist(result.text, result.url);
+    if (!playlist.isMaster) {
+      if (playlist.live) throw new Error('暂不支持直播流缓存');
+      if (!playlist.segments.length) throw new Error('HLS 清单没有视频分片');
+      return { ...result, playlist };
+    }
+    // Pin one rendition for both the player and the complete cache/export.
+    // Mixing adaptive renditions in one export produces duplicated timelines.
+    url = playlist.variants[0]?.url;
+    if (!url) throw new Error('HLS 主清单没有可用子清单');
+  }
+  throw new Error('HLS 主清单嵌套层数过多');
+}
+
+async function fetchKey(url, headers) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15000);
+  try {
+    const res = await fetchResource(url, { headers: cleanH(headers), credentials: 'include', cache: 'no-store', signal: ctrl.signal });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const buf = await res.arrayBuffer();
+    if (buf.byteLength !== 16) throw new Error('AES-128 密钥长度不是 16 字节');
+    return Array.from(new Uint8Array(buf));
+  } finally { clearTimeout(timer); }
 }
 function cleanH(h) { const o = {}; if (h) for (const k of ['Referer', 'Accept', 'Accept-Language']) if (h[k]) o[k] = h[k]; return o; }
 
@@ -403,7 +451,7 @@ async function recoverStuckSegments() {
     });
     if (resetIdx.length) { try { await saveMeta(m); } catch (e) { continue; } }
     let t = taskCtx.get(m.videoId);
-    if (!t) { t = { m3u8Url: m.m3u8Url, headers: undefined, live: m.live, domain: m.domain }; taskCtx.set(m.videoId, t); }
+    if (!t) { t = { m3u8Url: m.mediaUrl || m.m3u8Url, headers: undefined, live: m.live, domain: m.domain }; taskCtx.set(m.videoId, t); }
     scheduler.register(m.videoId, { meta: m, headers: t.headers, tabId: t.tabId, settings });
     for (const s of m.segments) {
       if (s.state === SEG_STATE.PENDING) scheduler.enqueue(m.videoId, s.idx, PRIO.FULL);
@@ -457,4 +505,4 @@ async function onPlayerTabUpdated(tabId, nextUrl) {
 registerSniffer();
 scheduler.startWatchdog();
 scheduler.startSpeedTicker();
-loadSettings().catch(e => logger.error('sw', 'load settings failed', e && e.message));
+loadSettings().then(configureNetwork).catch(e => logger.error('sw', 'load settings failed', e && e.message));

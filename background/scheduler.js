@@ -3,6 +3,7 @@
 import { putSegment, updateSegState, getMeta, saveMeta, SEG_STATE } from './cache-store.js';
 import { parsePlaylist } from './m3u8-parser.js';
 import { logger } from '../utils/logger.js';
+import { fetchResource } from './network.js';
 
 export const PRIO = { URGENT: 3, SEEK: 2, AHEAD: 1, FULL: 0 };
 
@@ -241,12 +242,12 @@ class Scheduler {
       const timer = setTimeout(() => attemptCtrl.abort(), timeoutMs);
       let fail = null;
       try {
-        const res = await fetch(seg.url, { headers, signal, credentials: 'include', cache: 'no-store' });
+        const res = await fetchResource(seg.url, { headers, signal, credentials: 'include', cache: 'no-store' });
         if (res.status === 403 || res.status === 401 || res.status === 429) {
           // 防盗链兜底：403 且未带 Referer 时，用清单 url 作为 Referer 重试一次（部分 CDN 校验 Referer 须为清单所在域）
           if (res.status === 403 && !headers.Referer) {
             try {
-              const r2 = await fetch(seg.url, { headers: { ...headers, Referer: task.meta.m3u8Url }, signal, credentials: 'include', cache: 'no-store' });
+              const r2 = await fetchResource(seg.url, { headers: { ...headers, Referer: task.meta.m3u8Url }, signal, credentials: 'include', cache: 'no-store' });
               if (r2.ok) return await r2.arrayBuffer();
             } catch (e) { /* 忽略，走刷新逻辑 */ }
           }
@@ -330,10 +331,11 @@ class Scheduler {
     const _timer = setTimeout(() => _ctrl.abort(), 15000); // 清单请求加 15s 超时：源 CDN 挂起/不响应时不再永久阻塞分片（此前 active=4 卡死、failed=0、done 不动的根因）
     try {
       const headers = cleanHeaders(task.headers);
-      const res = await fetch(task.meta.m3u8Url, { headers, credentials: 'include', cache: 'no-store', signal: _ctrl.signal });
+      const playlistUrl = task.meta.mediaUrl || task.meta.m3u8Url;
+      const res = await fetchResource(playlistUrl, { headers, credentials: 'include', cache: 'no-store', signal: _ctrl.signal });
       if (!res.ok) { logger.warn('scheduler', `refresh m3u8 ${videoId} HTTP ${res.status}（签名可能已过期）`); return; }
       const text = await res.text();
-      const p = parsePlaylist(text, task.meta.m3u8Url);
+      const p = parsePlaylist(text, res.url || playlistUrl);
       const meta = await getMeta(videoId);
       if (meta && p.segments.length) {
         // A refreshed VOD playlist normally keeps the same segment indexes,
@@ -350,10 +352,11 @@ class Scheduler {
             old.start = ns.start;
             old.sequence = ns.sequence;
             old.key = ns.key || null;
+            old.keyBaseUrl = ns.keyBaseUrl;
           } else {
             meta.segments.push({
               idx: ns.idx, sequence: ns.sequence, url: ns.url, duration: ns.duration, start: ns.start,
-              state: SEG_STATE.PENDING, size: 0, key: ns.key || null,
+              state: SEG_STATE.PENDING, size: 0, key: ns.key || null, keyBaseUrl: ns.keyBaseUrl,
             });
           }
         }

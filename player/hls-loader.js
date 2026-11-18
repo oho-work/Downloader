@@ -46,7 +46,7 @@ export class HlsCacheLoader {
   load(context, config, callbacks) {
     this._resetStats(); // 复用同一 stats 对象（hls.js 已把该引用绑定为 frag.stats），仅重置字段
     this.aborted = false;
-    if (this.destroyed) { callbacks.onError({ code: 2, text: 'destroyed' }, this.stats, context); return; }
+    if (this.destroyed) { callbacks.onError({ code: 2, text: 'destroyed' }, context, undefined, this.stats); return; }
     const requestId = ++this.requestId;
     this.context = context;
     const activeCallbacks = {
@@ -55,13 +55,15 @@ export class HlsCacheLoader {
       onAbort: callbacks.onAbort,
     };
     this.callbacks = activeCallbacks;
-    if (context.type === 'manifest' || context.type === 'levelmanifest') {
-      this._loadManifest(context, activeCallbacks, requestId);
-    } else if (context.type === 'key') {
+    // The bundled hls.js identifies keys with keyInfo (there is no `type`),
+    // and names child playlist requests `level`, not `levelmanifest`.
+    if (context.keyInfo || context.type === 'key') {
       this._loadKey(context, activeCallbacks, requestId);
+    } else if (context.responseType === 'text' || ['manifest', 'level', 'levelmanifest', 'audioTrack', 'subtitleTrack'].includes(context.type)) {
+      this._loadManifest(context, activeCallbacks, requestId);
     } else {
       this._loadSegment(context, activeCallbacks, requestId).catch(e => {
-        if (this._isCurrent(requestId)) activeCallbacks.onError({ code: 1, text: String(e?.message || e) }, this.stats, context);
+        if (this._isCurrent(requestId)) activeCallbacks.onError({ code: 1, text: String(e?.message || e) }, context, undefined, this.stats);
       });
     }
   }
@@ -79,16 +81,17 @@ export class HlsCacheLoader {
       });
       if (!this._isCurrent(requestId)) return;
       if (!resp || !resp.ok || !Array.isArray(resp.key)) {
-        callbacks.onError({ code: 1, text: 'key: ' + (resp && resp.error || 'failed') }, this.stats, context);
+        callbacks.onError({ code: 1, text: 'key: ' + (resp && resp.error || 'failed') }, context, undefined, this.stats);
         return;
       }
       const data = new Uint8Array(resp.key).buffer;
+      if (data.byteLength !== 16) throw new Error('AES-128 密钥长度不是 16 字节');
       this.stats.loaded = this.stats.total = data.byteLength;
       this.stats.loading.end = performance.now();
       this.stats.chunkCount = 1;
-      callbacks.onSuccess({ data }, this.stats, context, undefined);
+      callbacks.onSuccess({ url: context.url, data }, this.stats, context, undefined);
     } catch (e) {
-      if (this._isCurrent(requestId)) callbacks.onError({ code: 1, text: 'key: ' + String(e && e.message || e) }, this.stats, context);
+      if (this._isCurrent(requestId)) callbacks.onError({ code: 1, text: 'key: ' + String(e && e.message || e) }, context, undefined, this.stats);
     }
   }
 
@@ -97,14 +100,17 @@ export class HlsCacheLoader {
       const resp = await sendRuntimeMessage({ type: 'GET_MANIFEST', videoId: this.videoId, url: context.url });
       if (!this._isCurrent(requestId)) return;
       if (resp && resp.ok) {
+        this.stats.loaded = this.stats.total = new TextEncoder().encode(resp.text).byteLength;
+        this.stats.loading.end = performance.now();
+        this.stats.chunkCount = 1;
         // hls.js 期望 stats.parsing/loading 结构完整（onSuccess 会写 t.parsing.start / t.loading.end）
-        callbacks.onSuccess({ data: resp.text }, this.stats, context, undefined);
+        callbacks.onSuccess({ url: resp.url || context.url, data: resp.text }, this.stats, context, undefined);
       } else {
         logger.error('loader', 'manifest failed:', resp && resp.error);
-        callbacks.onError({ code: 1, text: 'manifest: ' + (resp && resp.error || 'failed') }, this.stats, context);
+        callbacks.onError({ code: 1, text: 'manifest: ' + (resp && resp.error || 'failed') }, context, undefined, this.stats);
       }
     } catch (e) {
-      if (this._isCurrent(requestId)) { logger.error('loader', 'manifest exception', e); callbacks.onError({ code: 1, text: String(e && e.message || e) }, this.stats, context); }
+      if (this._isCurrent(requestId)) { logger.error('loader', 'manifest exception', e); callbacks.onError({ code: 1, text: String(e && e.message || e) }, context, undefined, this.stats); }
     }
   }
 
@@ -129,7 +135,7 @@ export class HlsCacheLoader {
       meta = await getMeta(this.videoId);
       if (!this._isCurrent(requestId)) return;
       seg = meta && meta.segments.find(x => x.url === url);
-      if (!seg) { logger.error('loader', 'cannot register segment', diagnosticUrl(url)); callbacks.onError({ code: 1, text: 'cannot register segment' }); return; }
+      if (!seg) { logger.error('loader', 'cannot register segment', diagnosticUrl(url)); callbacks.onError({ code: 1, text: 'cannot register segment' }, context, undefined, this.stats); return; }
     }
 
     const deadline = Date.now() + 60000;
@@ -141,7 +147,7 @@ export class HlsCacheLoader {
         this.stats.loaded = this.stats.total = blob.buffer.byteLength;
         this.stats.loading.end = performance.now();
         this.stats.chunkCount = 1;
-        callbacks.onSuccess({ data: blob.buffer }, this.stats, context, undefined);
+        callbacks.onSuccess({ url, data: blob.buffer }, this.stats, context, undefined);
         return;
       }
       await sendRuntimeMessage({ type: 'SCHEDULE_SEG', videoId: this.videoId, segIdx: seg.idx });
@@ -150,7 +156,7 @@ export class HlsCacheLoader {
     }
     if (!this._isCurrent(requestId)) return;
     logger.error('loader', 'seg timeout idx=' + seg.idx + ' url=' + diagnosticUrl(url));
-    callbacks.onError({ code: 3, text: 'segment timeout' }, this.stats, context);
+    callbacks.onError({ code: 3, text: 'segment timeout' }, context, undefined, this.stats);
   }
 
   abort() {

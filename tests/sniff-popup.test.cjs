@@ -47,7 +47,7 @@ test('clear acts on the selected view without switching tabs or deleting the oth
     },
     chrome: {
       tabs: { query: async () => [{ id: 7, url: 'https://example.com/watch' }] },
-      runtime: { sendMessage: async msg => {
+      runtime: { getManifest: () => ({ version: '1.0.1' }), sendMessage: async msg => {
         messages.push(msg);
         return { ok: true, streams: [], videos: [] };
       } },
@@ -89,7 +89,7 @@ test('deleting one cached item sends its id and refreshes only the cache view', 
     },
     chrome: {
       tabs: { query: async () => [{ id: 7, url: 'https://example.com/watch' }] },
-      runtime: { sendMessage: async msg => {
+      runtime: { getManifest: () => ({ version: '1.0.1' }), sendMessage: async msg => {
         messages.push(msg);
         if (msg.type === 'LIST_CACHED') return { ok: true, videos };
         return { ok: true, streams: [] };
@@ -107,9 +107,9 @@ test('deleting one cached item sends its id and refreshes only the cache view', 
   assert.equal(messages[0].videoId, 'v-one');
 });
 
-async function loadSniffer(fetch, set = async () => {}) {
+async function loadSniffer(fetch, set = async () => {}, parsePlaylist = () => ({ live: false, segments: [{}], totalDuration: 10 })) {
   const context = vm.createContext({
-    URL, fetch,
+    URL, fetch, AbortController, setTimeout, clearTimeout,
     chrome: {
       storage: { local: { get: async () => ({}), set, remove: async () => {} } },
       tabs: { sendMessage: async () => {} },
@@ -117,7 +117,8 @@ async function loadSniffer(fetch, set = async () => {}) {
   });
   const mod = new vm.SourceTextModule(source('background/sniffer.js'), { context });
   const mocks = {
-    './m3u8-parser.js': { parsePlaylist: () => ({ live: false, segments: [{}], totalDuration: 10 }) },
+    './m3u8-parser.js': { parsePlaylist },
+    './network.js': { fetchResource: fetch },
     './session.js': { captureHeaders() {}, getSession: () => ({ Referer: 'private' }) },
     '../utils/id.js': { absolutize() {}, domainOf: () => 'cdn.example.com', diagnosticUrl: value => value || '' },
     '../utils/logger.js': { logger: { info() {}, warn() {}, debug() {} } },
@@ -179,6 +180,42 @@ test('a page navigation discards late verification from the previous page', asyn
   assert.deepEqual(Array.from(await sniffer.listStreams(7, 'https://example.com/new'), s => s.url),
     ['https://cdn.example.com/new.m3u8']);
   assert.equal((await sniffer.listStreams(7, 'https://example.com/old')).length, 0);
+});
+
+test('master verification follows redirected children and rejects live media', async () => {
+  for (const live of [false, true]) {
+    const requests = [];
+    const bases = [];
+    const sniffer = await loadSniffer(async url => {
+      requests.push(url);
+      return { ok: true, url: url.includes('master') ? 'https://cdn.example.com/dir/master.m3u8' : url,
+        text: async () => url.includes('master') ? '#EXTM3U master' : '#EXTM3U media' };
+    }, async () => {}, (text, base) => {
+      bases.push(base);
+      return text.includes('master')
+        ? { isMaster: true, variants: [{ url: new URL('media.m3u8', base).href }], segments: [] }
+        : { isMaster: false, live, encrypted: true, segments: [{}], totalDuration: 10 };
+    });
+    sniffer.ingestContentStream(7, 'https://cdn.example.com/master.m3u8', 'https://example.com/watch');
+    await settle();
+    const streams = await sniffer.listStreams(7, 'https://example.com/watch');
+    assert.deepEqual(requests, ['https://cdn.example.com/master.m3u8', 'https://cdn.example.com/dir/media.m3u8']);
+    assert.equal(bases[0], 'https://cdn.example.com/dir/master.m3u8');
+    assert.equal(streams.length, live ? 0 : 1);
+    if (!live) { assert.equal(streams[0].isMaster, true); assert.equal(streams[0].encrypted, true); }
+  }
+});
+
+test('cyclic master playlists are rejected without repeated fetching', async () => {
+  let requests = 0;
+  const sniffer = await loadSniffer(async () => {
+    requests++;
+    return { ok: true, text: async () => '#EXTM3U' };
+  }, async () => {}, () => ({ isMaster: true, variants: [{ url: 'https://cdn.example.com/master.m3u8' }], segments: [] }));
+  sniffer.ingestContentStream(7, 'https://cdn.example.com/master.m3u8', 'https://example.com/watch');
+  await settle();
+  assert.equal(requests, 1);
+  assert.equal((await sniffer.listStreams(7, 'https://example.com/watch')).length, 0);
 });
 
 test('a newly injected content script restores the detected-stream popup on reload', async () => {
