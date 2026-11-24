@@ -54,7 +54,9 @@ HLS Cache Player 用于发现网页中的 HLS 点播资源，在独立标签页�
 
 ## 审核测试说明（补全后复制）
 
-无需扩展账号。使用发布者提供的合法测试页面，播放 HLS 点播视频后点击扩展图标，在嗅探列表打开播放器；确认默认静音、缓存进度、失败重试及 MP4 导出。关闭最后一个对应播放页后，缓存列表中的该视频应被清理。
+无需扩展账号。打开 [Video.js 公共演示页（预填 Mux 低码率测试流）](https://videojs-http-streaming.netlify.app/?url=https%3A%2F%2Ftest-streams.mux.dev%2Fx36xhzz%2Furl_2%2F193039199_mp4_h264_aac_ld_7.m3u8&muted=true&autoplay=false)，点击播放，再从扩展嗅探列表打开独立播放器。2026-11-24 已在静音 Edge 验证网页嗅探与扩展实际出画面，无需登录；第三方测试站的后续可用性由其维护者决定。
+
+确认默认静音、缓存进度、失败重试及 MP4 导出。关闭最后一个对应播放页后，缓存列表中的该视频应被清理。
 
 代理为可选功能：[辅助程序源码及下载入口](https://github.com/oho-work/Downloader/blob/6f3ebc0b714a19112a1d848fa5652a163bc66a2f/tools/download-relay.cjs)。可克隆该版本仓库后在项目目录运行 `node tools/download-relay.cjs`（Node.js 18+），在设置页启用代理并填写可用上游代理；本地转发地址默认为 `http://127.0.0.1:17891`。普通播放与导出可保持代理关闭。
 
@@ -65,7 +67,7 @@ HLS Cache Player 用于发现网页中的 HLS 点播资源，在独立标签页�
 - [x] 发布者使用 OHO，支持联系使用 oho_work@163.com；可见性选择 Hidden，仅链接分发。
 - [x] 隐私政策已通过公开 GitHub 页面托管，地址见上表；2026-11-18 已核对无需登录即可阅读正文。
 - [ ] 在 Partner Center 填入上述 Privacy Policy URL；政策已写明修订日期及正式发布时生效。
-- [ ] 提供有权使用且持续可访问的审核测试页；如需账号，向审核方提供测试账号。不要使用带私人 Cookie 或临时签名的链接。
+- [x] 提供无需登录的公共演示页与测试流，已验证嗅探及扩展播放；见审核说明。提交前确认第三方测试站仍可访问。
 - [x] 代理辅助程序已在公开代码分支提供，见上方固定提交下载入口；独立 ZIP 也已在本地生成。
 - [ ] 上传已准备的真实界面素材：`dist/store-assets/01-player.png`、`02-detect-and-cache.png`、`03-settings-and-proxy.png`（1280×800）。Logo 至少 128×128，建议 300×300；截图不得包含无授权视频画面或敏感 URL。
 - [x] 已公开本版本[第三方源码归档](https://github.com/oho-work/Downloader/releases/download/V1.0.0/Downloader-1.0.1-third-party-sources.tar.gz)及[校验文件](https://github.com/oho-work/Downloader/releases/download/V1.0.0/Downloader-1.0.1-third-party-sources.tar.gz.json)，2026-11-24 已核对 Release 附件。
