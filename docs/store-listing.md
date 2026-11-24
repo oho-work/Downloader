@@ -1,6 +1,6 @@
 # Edge Add-ons 上架文案草稿
 
-适用版本：1.0.1；核对日期：2026-11-18。下方文案按当前代码编写；发布前完成末尾核对项，不要把占位内容提交到商店。
+适用版本：1.0.1；核对日期：2026-11-24。下方文案按当前代码编写；发布前完成末尾核对项，不要把占位内容提交到商店。
 
 ## 基本信息
 
@@ -11,6 +11,7 @@
 | 支持联系 | oho_work@163.com |
 | 可见性 | Hidden（仅通过商店链接访问，不参与搜索或浏览展示） |
 | Privacy Policy URL | [公开隐私政策](https://github.com/oho-work/Downloader/blob/codex/store-info/docs/privacy-policy.md) |
+| 对应源码发行 | [GitHub Release V1.0.0](https://github.com/oho-work/Downloader/releases/tag/V1.0.0)；其中归档版本为 1.0.1 |
 | 语言 | 简体中文 |
 | 短说明（与 manifest 一致） | 嗅探、播放、缓存与导出 HLS 点播流；内置 hls.js 和 FFmpeg Wasm，支持导出 MP4。 |
 | 分类 | 从 Partner Center 当前选项中选择最接近视频工具的类别 |
@@ -57,14 +58,18 @@ HLS Cache Player 用于发现网页中的 HLS 点播资源，在独立标签页�
 
 代理为可选功能：在提供的项目目录运行 `node tools/download-relay.cjs`（Node.js 18+），在设置页启用代理并填写可用上游代理；本地转发地址默认为 `http://127.0.0.1:17891`。普通播放与导出可保持代理关闭。
 
+本版本第三方源码与校验文件已发布在 [GitHub Release V1.0.0](https://github.com/oho-work/Downloader/releases/tag/V1.0.0)，归档名为 `Downloader-1.0.1-third-party-sources.tar.gz`。Release 标签与归档版本不同，不影响归档文件名中的版本标识；未宣称已在本地重建或实现字节一致复现。
+
 ## 发布前待补全
 
 - [x] 发布者使用 OHO，支持联系使用 oho_work@163.com；可见性选择 Hidden，仅链接分发。
 - [x] 隐私政策已通过公开 GitHub 页面托管，地址见上表；2026-11-18 已核对无需登录即可阅读正文。
 - [ ] 在 Partner Center 填入上述 Privacy Policy URL；政策已写明修订日期及正式发布时生效。
-- [ ] 提供有权使用且持续可访问的测试页，以及本地代理脚本的真实获取地址；如测试资源需账号，向审核方提供测试账号。不要使用带私人 Cookie 或临时签名的链接。
-- [ ] 上传真实界面素材：logo 至少 128×128，建议 300×300；如使用截图，尺寸为 640×480 或 1280×800，最多 6 张。不得包含无授权视频画面或敏感 URL。
-- [ ] 完成[发布核对表](release-checklist.md)中的 FFmpeg/GPL 对应源码、构建材料和第三方许可证事项；草稿不代表当前二进制已具备公开再分发条件。
+- [ ] 提供有权使用且持续可访问的审核测试页；如需账号，向审核方提供测试账号。不要使用带私人 Cookie 或临时签名的链接。
+- [ ] 提供本地代理辅助程序的实际下载地址；当前公开 Release 只有第三方源码及校验文件，尚无 relay ZIP。
+- [ ] 上传已准备的真实界面素材：`dist/store-assets/01-player.png`、`02-detect-and-cache.png`、`03-settings-and-proxy.png`（1280×800）。Logo 至少 128×128，建议 300×300；截图不得包含无授权视频画面或敏感 URL。
+- [x] 已公开本版本[第三方源码归档](https://github.com/oho-work/Downloader/releases/download/V1.0.0/Downloader-1.0.1-third-party-sources.tar.gz)及[校验文件](https://github.com/oho-work/Downloader/releases/download/V1.0.0/Downloader-1.0.1-third-party-sources.tar.gz.json)，2026-11-24 已核对 Release 附件。
+- [ ] 按[发布核对表](release-checklist.md)核对最终二进制附带的第三方许可、出处记录和实际源码链接；本地未重建不表述为已经字节复现，公开材料不保证商店审核结论。
 - [ ] 按最终 ZIP 再核对权限、实际数据处理、Edge 实测结果及所有表单声明。
 
 ## 官方依据

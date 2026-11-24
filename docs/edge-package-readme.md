@@ -1,10 +1,10 @@
 # HLS Cache Player 1.0.1
 
-这是本地验证候选包。**第三方完整对应源码、构建材料和发布核对仍未完成，不应把此 ZIP 上传商店或公开分发。** 状态见 [发布核对表](docs/release-checklist.md)及[源码来源说明](docs/third-party-sources.md)。
+这是 Edge 商店提交包。第三方许可随包提供，[对应源码和构建说明](https://github.com/oho-work/Downloader/releases/tag/V1.0.0)已公开；尚未进行本地重建。审核状态见商店，源码详情见[来源说明](docs/third-party-sources.md)。
 
-## 本地安装
+## 使用
 
-解压 ZIP，打开 `edge://extensions`，开启「开发人员模式」，点击「加载解压缩的扩展」，选择包含 `manifest.json` 的解压目录。需要 Microsoft Edge 或兼容的 Chromium 浏览器，内核版本至少 110。
+ZIP 用于提交 Microsoft Edge Add-ons 审核，不能直接当作商店安装文件。审核通过后，通过商店链接安装，无需开发人员模式。需要 Microsoft Edge 或兼容的 Chromium 浏览器，内核版本至少 110。
 
 打开有权处理的 HLS 点播网页，播放视频后从扩展嗅探结果打开独立播放页。缓存分片完成后可导出 MP4。播放页默认静音，可通过播放器控件自行开启声音。
 

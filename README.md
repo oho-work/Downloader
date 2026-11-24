@@ -2,7 +2,7 @@
 
 HLS Cache Player 是 Chrome Manifest V3 扩展，用于发现网页请求的点播 HLS (`.m3u8`) 流，在独立标签页播放、缓存分片，并将可用的 TS 分片封装为 MP4 文件。扩展直接使用本地随附的 hls.js 和 FFmpeg Wasm 文件，运行时不依赖远程脚本服务。
 
-**发布状态：**当前为本地 V1 候选版。随附的 FFmpeg 核心为 GPL-2.0-or-later，仓库尚未补齐公开再分发所需的第三方许可证、完整对应源码与构建材料；完成 [发布核对表](docs/release-checklist.md)前，不应将完整扩展推送为公开仓库或发布包。
+**发布状态：**1.0.1 正在准备提交 Edge 商店审核。第三方许可随包提供，[对应源码与构建说明](https://github.com/oho-work/Downloader/releases/tag/V1.0.0)已公开；尚未进行本地重建。提交进度见[发布核对表](docs/release-checklist.md)。
 
 ## 功能
 
@@ -53,6 +53,6 @@ node --experimental-vm-modules --test tests
 
 ## 许可与免责声明
 
-项目自有代码按 [MIT License](LICENSE) 提供。`lib/` 中的 hls.js、FFmpeg Wasm 包装层、FFmpeg 核心及其编入的库均保留各自许可；详见 [第三方组件与发布须知](THIRD_PARTY_NOTICES.md)及[公开发布核对表](docs/release-checklist.md)。**随附的 FFmpeg Wasm 核心为 GPL-2.0-or-later，不能把整个扩展概括为“仅 MIT 许可”；公开再分发前需要补齐相应的源码、构建和版权声明材料。**
+项目自有代码按 [MIT License](LICENSE) 提供。`lib/` 中的 hls.js、FFmpeg Wasm 包装层、FFmpeg 核心及其编入的库均保留各自许可；详见[第三方声明](THIRD_PARTY_NOTICES.md)。随附 FFmpeg 核心涉及 GPL-2.0-or-later，不能将整个扩展概括为仅 MIT。对应源码和构建说明在[源码发行页](https://github.com/oho-work/Downloader/releases/tag/V1.0.0)提供，下载者应保留相关声明与源码获取方式。
 
 本工具仅供处理你有权访问、播放、复制和保存的内容。资源所属网站的条款、版权与当地法律由使用者自行遵守。软件按现状提供，不承诺能处理所有 HLS 流，也不保证缓存或导出文件完整；请勿将本工具用于规避付费、授权或 DRM 限制。

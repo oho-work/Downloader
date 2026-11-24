@@ -8,6 +8,14 @@
 - `ffmpeg-wasm/`：`@ffmpeg/core@0.12.10` 发行提交中绑定层代码的 MIT 许可。该 MIT 文本不覆盖链接后的 FFmpeg 核心及其 GPL 依赖。
 - 其余目录：FFmpeg、构建配方声明的外部库、SDL2 及 Emscripten 的上游许可资料。FreeType 同时保留了其许可选择说明、FTL 和 GPLv2 文本；不能据此同时选择相互冲突的许可条件。
 
-**这些文件不是完整对应源码包，也不代表已完成公开发行条件。** `x264` 的 `4-cores`、LAME 的 `master` 是上游构建配方使用的分支；此处记录的提交是审计时取得的值，不能替代原始构建记录。历史构建、完整源码及发布前还需完成的事项见 [第三方源码审计](../docs/third-party-sources.md)。
+这些许可文本本身不是完整对应源码包。完整上游源码、构建配方及校验材料已于 2026-11-24 在 [GitHub Release V1.0.0](https://github.com/oho-work/Downloader/releases/tag/V1.0.0) 公开：
+
+- [Downloader 1.0.1 第三方源码归档](https://github.com/oho-work/Downloader/releases/download/V1.0.0/Downloader-1.0.1-third-party-sources.tar.gz)。
+- [归档校验 JSON](https://github.com/oho-work/Downloader/releases/download/V1.0.0/Downloader-1.0.1-third-party-sources.tar.gz.json)。
+- 大小：278,257,678 字节；SHA-256：`c9651997acc13b0675ea66307f42954faac777de6ff9f9551531788e6486b318`。
+
+发行页标签为 `V1.0.0`，上述资产对应扩展 **1.0.1** 随附的第三方运行库。公开发行 API 的大小和摘要、下载的校验 JSON 与本地冻结记录一致。已上传归档保持不变，尚未执行核心重建。
+
+`x264` 的 `4-cores`、LAME 的 `master` 是上游构建配方使用的分支；已核对其发行时可达提交历史并保存固定源码，但不能以此替代原始构建缓存或补丁记录。历史构建证据、源码内容和已知边界见 [第三方源码审计](../docs/third-party-sources.md)。
 
 上游完整源码中可能含额外的逐文件版权、子目录许可和专利说明，发行源码时须原样保留。项目根目录的 MIT `LICENSE` 不替代这些条件。

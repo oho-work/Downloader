@@ -12,6 +12,14 @@ if ($manifest.manifest_version -ne 3 -or $manifest.version -notmatch '^\d+\.\d+\
 }
 if (@($manifest.permissions) -contains 'proxy') { throw 'The extension must not request browser-wide proxy permission.' }
 
+$sourceRelease = Get-Content -Raw -LiteralPath (Join-Path $projectRoot 'docs/release-assets.json') | ConvertFrom-Json
+if ($sourceRelease.extensionVersion -ne $manifest.version) { throw 'Source release metadata does not match the extension version.' }
+$sourceAsset = Invoke-RestMethod -Uri "https://api.github.com/repos/oho-work/Downloader/releases/assets/$($sourceRelease.sourceAssetId)" -Headers @{ 'User-Agent' = 'HLS-Cache-Player-Packager' } -TimeoutSec 30
+if ($sourceAsset.state -ne 'uploaded' -or $sourceAsset.size -ne $sourceRelease.sourceBytes -or
+    $sourceAsset.digest -ne ('sha256:' + $sourceRelease.sourceSha256) -or $sourceAsset.browser_download_url -ne $sourceRelease.sourceUrl) {
+  throw 'The public source asset does not match the verified release metadata.'
+}
+
 function Get-ProjectFile([string]$relative) {
   $absolute = [IO.Path]::GetFullPath((Join-Path $projectRoot $relative))
   if (-not $absolute.StartsWith($projectRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
@@ -34,7 +42,7 @@ foreach ($directory in @('assets', 'background', 'content', 'lib', 'player', 'po
     $files.Add($relative, $file.FullName)
   }
 }
-foreach ($relative in @('manifest.json', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'docs/third-party-sources.md', 'docs/release-checklist.md')) {
+foreach ($relative in @('manifest.json', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'docs/third-party-sources.md', 'docs/release-checklist.md', 'docs/release-assets.json')) {
   $files.Add($relative, (Get-ProjectFile $relative))
 }
 $files.Add('README.md', (Get-ProjectFile 'docs/edge-package-readme.md'))
@@ -103,9 +111,10 @@ $archives = @($extensionZip, $relayZip) | ForEach-Object {
 }
 $report = [ordered]@{
   version = $manifest.version
-  status = 'LOCAL_CANDIDATE_NOT_CLEARED_FOR_PUBLIC_REDISTRIBUTION'
+  status = 'STORE_SUBMISSION_PACKAGE'
   releaseChecklist = 'docs/release-checklist.md'
-  note = 'Packaging verifies archive structure only. Resolve the third-party source/build and release checklist blockers before store upload.'
+  note = 'Public source asset URL, size and digest verified. Store certification is pending; the FFmpeg core was not rebuilt locally.'
+  sourceRelease = $sourceRelease
   archives = $archives
   extensionFileCount = $files.Count
   extensionFiles = @($files.GetEnumerator() | ForEach-Object {
@@ -115,4 +124,4 @@ $report = [ordered]@{
 $reportPath = Join-Path $outputPath "package-report-$($manifest.version).json"
 [IO.File]::WriteAllText($reportPath, ($report | ConvertTo-Json -Depth 6) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 $archives | ForEach-Object { Write-Output ("{0}  {1} bytes  SHA256 {2}" -f $_.file, $_.bytes, $_.sha256) }
-Write-Output "Local candidate only. Package report: $reportPath"
+Write-Output "Store submission package generated. Package report: $reportPath"

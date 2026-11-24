@@ -1,0 +1,13 @@
+{
+  "extensionVersion": "1.0.1",
+  "releaseUrl": "https://github.com/oho-work/Downloader/releases/tag/V1.0.0",
+  "sourceUrl": "https://github.com/oho-work/Downloader/releases/download/V1.0.0/Downloader-1.0.1-third-party-sources.tar.gz",
+  "sourceChecksumUrl": "https://github.com/oho-work/Downloader/releases/download/V1.0.0/Downloader-1.0.1-third-party-sources.tar.gz.json",
+  "sourceBytes": 278257678,
+  "sourceSha256": "c9651997acc13b0675ea66307f42954faac777de6ff9f9551531788e6486b318",
+  "sourceAssetId": 787537130,
+  "verifiedDate": "2026-11-24",
+  "privacyUrl": "https://github.com/oho-work/Downloader/blob/codex/store-info/docs/privacy-policy.md",
+  "buildExecuted": false,
+  "note": "The GitHub release tag is V1.0.0; its named source asset covers extension 1.0.1. No local reproducible build is claimed."
+}
