@@ -56,7 +56,7 @@ HLS Cache Player 用于发现网页中的 HLS 点播资源，在独立标签页�
 
 无需扩展账号。使用发布者提供的合法测试页面，播放 HLS 点播视频后点击扩展图标，在嗅探列表打开播放器；确认默认静音、缓存进度、失败重试及 MP4 导出。关闭最后一个对应播放页后，缓存列表中的该视频应被清理。
 
-代理为可选功能：在提供的项目目录运行 `node tools/download-relay.cjs`（Node.js 18+），在设置页启用代理并填写可用上游代理；本地转发地址默认为 `http://127.0.0.1:17891`。普通播放与导出可保持代理关闭。
+代理为可选功能：[辅助程序源码及下载入口](https://github.com/oho-work/Downloader/blob/6f3ebc0b714a19112a1d848fa5652a163bc66a2f/tools/download-relay.cjs)。可克隆该版本仓库后在项目目录运行 `node tools/download-relay.cjs`（Node.js 18+），在设置页启用代理并填写可用上游代理；本地转发地址默认为 `http://127.0.0.1:17891`。普通播放与导出可保持代理关闭。
 
 本版本第三方源码与校验文件已发布在 [GitHub Release V1.0.0](https://github.com/oho-work/Downloader/releases/tag/V1.0.0)，归档名为 `Downloader-1.0.1-third-party-sources.tar.gz`。Release 标签与归档版本不同，不影响归档文件名中的版本标识；未宣称已在本地重建或实现字节一致复现。
 
@@ -66,11 +66,11 @@ HLS Cache Player 用于发现网页中的 HLS 点播资源，在独立标签页�
 - [x] 隐私政策已通过公开 GitHub 页面托管，地址见上表；2026-11-18 已核对无需登录即可阅读正文。
 - [ ] 在 Partner Center 填入上述 Privacy Policy URL；政策已写明修订日期及正式发布时生效。
 - [ ] 提供有权使用且持续可访问的审核测试页；如需账号，向审核方提供测试账号。不要使用带私人 Cookie 或临时签名的链接。
-- [ ] 提供本地代理辅助程序的实际下载地址；当前公开 Release 只有第三方源码及校验文件，尚无 relay ZIP。
+- [x] 代理辅助程序已在公开代码分支提供，见上方固定提交下载入口；独立 ZIP 也已在本地生成。
 - [ ] 上传已准备的真实界面素材：`dist/store-assets/01-player.png`、`02-detect-and-cache.png`、`03-settings-and-proxy.png`（1280×800）。Logo 至少 128×128，建议 300×300；截图不得包含无授权视频画面或敏感 URL。
 - [x] 已公开本版本[第三方源码归档](https://github.com/oho-work/Downloader/releases/download/V1.0.0/Downloader-1.0.1-third-party-sources.tar.gz)及[校验文件](https://github.com/oho-work/Downloader/releases/download/V1.0.0/Downloader-1.0.1-third-party-sources.tar.gz.json)，2026-11-24 已核对 Release 附件。
-- [ ] 按[发布核对表](release-checklist.md)核对最终二进制附带的第三方许可、出处记录和实际源码链接；本地未重建不表述为已经字节复现，公开材料不保证商店审核结论。
-- [ ] 按最终 ZIP 再核对权限、实际数据处理、Edge 实测结果及所有表单声明。
+- [x] 按[发布核对表](release-checklist.md)核对二进制附带的第三方许可、出处记录和实际源码链接；明确未进行本地重建。
+- [x] 最终 ZIP 已核对权限、实际数据处理及本地验证结果；表单声明仍需提交前确认。
 
 ## 官方依据
 

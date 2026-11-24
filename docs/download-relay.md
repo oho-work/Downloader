@@ -10,6 +10,8 @@
 node tools/download-relay.cjs
 ```
 
+也可从[项目源码](https://github.com/oho-work/Downloader/tree/codex/edge-release)取得 `tools/download-relay.cjs`，在项目目录运行同一命令。
+
 保持终端运行，在扩展「设置」中启用下载代理，填写现有 HTTP、HTTPS、SOCKS4 或 SOCKS5 代理地址，例如 `http://127.0.0.1:7890`。本地服务保持默认 `http://127.0.0.1:17891`。
 
 代理需要由你自行提供；此程序本身不是 VPN 或上游代理。暂不支持代理账号密码。仅使用自己信任的代理，来源地址、请求头和媒体数据将经过该代理。
